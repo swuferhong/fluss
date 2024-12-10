@@ -56,7 +56,8 @@ class FlinkUnionReadLogTableITCase extends FlinkUnionReadTestBase {
         builder.build();
         JobClient jobClient = execEnv.executeAsync();
 
-        String tableName = "logTable_" + (isPartitioned ? "partitioned" : "non_partitioned");
+        String tableName =
+                "union_read_logTable_" + (isPartitioned ? "partitioned" : "non_partitioned");
 
         TablePath t1 = TablePath.of(DEFAULT_DB, tableName);
         List<Row> writtenRows = new ArrayList<>();

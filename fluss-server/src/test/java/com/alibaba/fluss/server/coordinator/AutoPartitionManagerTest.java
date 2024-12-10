@@ -317,7 +317,7 @@ class AutoPartitionManagerTest {
                                         .primaryKey("id", "dt")
                                         .build())
                         .comment("partitioned table")
-                        .distributedBy(16)
+                        .distributedBy(3)
                         .partitionedBy("dt")
                         .property(ConfigOptions.TABLE_AUTO_PARTITION_ENABLED, true)
                         .property(ConfigOptions.TABLE_AUTO_PARTITION_TIME_UNIT, timeUnit)

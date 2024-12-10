@@ -52,8 +52,6 @@ import static com.alibaba.fluss.record.TestData.DATA1_ROW_TYPE;
 import static com.alibaba.fluss.record.TestData.DATA1_SCHEMA;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO_PK;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH_PK;
 import static com.alibaba.fluss.record.TestData.DATA_1_WITH_KEY_AND_VALUE;
 import static com.alibaba.fluss.record.TestData.DEFAULT_SCHEMA_ID;
 import static com.alibaba.fluss.server.testutils.KvTestUtils.assertLookupResponse;
@@ -82,11 +80,10 @@ public class TabletServiceITCase {
 
     @Test
     void testProduceLog() throws Exception {
+        TablePath tablePath = new TablePath("test_db_1", "test_produce_log_t1");
         long tableId =
                 createTable(
-                        FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
-                        DATA1_TABLE_INFO.getTableDescriptor());
+                        FLUSS_CLUSTER_EXTENSION, tablePath, DATA1_TABLE_INFO.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
         FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
@@ -132,11 +129,10 @@ public class TabletServiceITCase {
 
     @Test
     void testFetchLog() throws Exception {
+        TablePath tablePath = new TablePath("test_db_1", "test_fetch_log_t1");
         long tableId =
                 createTable(
-                        FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
-                        DATA1_TABLE_INFO.getTableDescriptor());
+                        FLUSS_CLUSTER_EXTENSION, tablePath, DATA1_TABLE_INFO.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
         FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
@@ -244,7 +240,7 @@ public class TabletServiceITCase {
         long tableId =
                 createTable(
                         FLUSS_CLUSTER_EXTENSION,
-                        TablePath.of("test_db_1", "test_indexed_table_1"),
+                        TablePath.of("test_db_1", "test_invalid_fetch_log_indexed_table_1"),
                         TableDescriptor.builder()
                                 .schema(DATA1_SCHEMA)
                                 .logFormat(LogFormat.INDEXED)
@@ -262,15 +258,16 @@ public class TabletServiceITCase {
                 0,
                 Errors.INVALID_COLUMN_PROJECTION.code(),
                 "Column projection is only supported for ARROW format, "
-                        + "but the table test_db_1.test_indexed_table_1 is INDEXED format.");
+                        + "but the table test_db_1.test_invalid_fetch_log_indexed_table_1 is INDEXED format.");
     }
 
     @Test
     void testPutKv() throws Exception {
+        TablePath tablePath = new TablePath("test_db_1", "test_put_kv_t1");
         long tableId =
                 createTable(
                         FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH_PK,
+                        tablePath,
                         DATA1_TABLE_INFO_PK.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
@@ -306,10 +303,11 @@ public class TabletServiceITCase {
 
     @Test
     void testGetKey() throws Exception {
+        TablePath tablePath = new TablePath("test_db_1", "test_get_key_t1");
         long tableId =
                 createTable(
                         FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH_PK,
+                        tablePath,
                         DATA1_TABLE_INFO_PK.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
@@ -360,10 +358,11 @@ public class TabletServiceITCase {
                 "Unknown table or bucket: TableBucket{tableId=10005, bucket=6}");
 
         // Get key from a non-pk table.
+        TablePath logTablePath = new TablePath("test_db_1", "test_get_key_log_t1");
         long logTableId =
                 createTable(
                         FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
+                        logTablePath,
                         DATA1_TABLE_INFO.getTableDescriptor());
         TableBucket logTableBucket = new TableBucket(logTableId, 0);
 
@@ -385,10 +384,11 @@ public class TabletServiceITCase {
 
     @Test
     void testLimitScanPrimaryKeyTable() throws Exception {
+        TablePath tablePath = new TablePath("test_db_1", "test_limit_scan_primary_key_table_1");
         long tableId =
                 createTable(
                         FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH_PK,
+                        tablePath,
                         DATA1_TABLE_INFO_PK.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
@@ -420,10 +420,11 @@ public class TabletServiceITCase {
 
     @Test
     void testLimitScanLogTable() throws Exception {
+        TablePath logTablePath = new TablePath("test_db_1", "test_limit_scan_log_table_1");
         long logTableId =
                 createTable(
                         FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
+                        logTablePath,
                         DATA1_TABLE_INFO.getTableDescriptor());
         TableBucket logTableBucket = new TableBucket(logTableId, 0);
         FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(logTableBucket);
@@ -465,11 +466,10 @@ public class TabletServiceITCase {
 
     @Test
     void testListOffsets() throws Exception {
+        TablePath tablePath = new TablePath("test_db_1", "test_list_offsets_1");
         long tableId =
                 createTable(
-                        FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
-                        DATA1_TABLE_INFO.getTableDescriptor());
+                        FLUSS_CLUSTER_EXTENSION, tablePath, DATA1_TABLE_INFO.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
         FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);

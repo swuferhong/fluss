@@ -92,7 +92,7 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
 
     @Test
     void testScanSingleRowFilter() throws Exception {
-        String tableName = prepareSourceTable(new String[] {"name", "id"}, null);
+        String tableName = prepareSourceTable("scan_single_1", new String[] {"name", "id"}, null);
         String query = String.format("SELECT * FROM %s WHERE id = 1 AND name = 'name1'", tableName);
 
         assertThat(tEnv.explainSql(query))
@@ -109,7 +109,7 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
 
     @Test
     void testScanSingleRowFilter2() throws Exception {
-        String tableName = prepareSourceTable(new String[] {"id", "name"}, null);
+        String tableName = prepareSourceTable("scan_single_2", new String[] {"id", "name"}, null);
         String query = String.format("SELECT * FROM %s WHERE id = 1 AND name = 'name1'", tableName);
 
         assertThat(tEnv.explainSql(query))
@@ -126,7 +126,7 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
 
     @Test
     void testScanSingleRowFilter3() throws Exception {
-        String tableName = prepareSourceTable(new String[] {"id"}, null);
+        String tableName = prepareSourceTable("scan_single_3", new String[] {"id"}, null);
         String query = String.format("SELECT id,name FROM %s WHERE id = 1", tableName);
 
         assertThat(tEnv.explainSql(query))
@@ -143,7 +143,7 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
 
     @Test
     void testScanSingleRowFilterOnPartitionedTable() throws Exception {
-        String tableName = prepareSourceTable(new String[] {"id", "dt"}, "dt");
+        String tableName = prepareSourceTable("scan_single_4", new String[] {"id", "dt"}, "dt");
         TablePath tablePath = TablePath.of(DEFAULT_DB, tableName);
         Map<Long, String> partitionNameById =
                 waitUntilPartitions(FLUSS_CLUSTER_EXTENSION.getZooKeeperClient(), tablePath);
@@ -169,7 +169,7 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
 
     @Test
     void testScanSingleRowFilterException() throws Exception {
-        String tableName = prepareSourceTable(new String[] {"id", "name"}, null);
+        String tableName = prepareSourceTable("scan_single_5", new String[] {"id", "name"}, null);
         String query = String.format("SELECT * FROM %s WHERE id = 1", tableName);
 
         // doesn't have all condition for primary key, doesn't support to execute
@@ -182,7 +182,8 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
 
     @Test
     void testLakeTableQueryOnLakeDisabledTable() throws Exception {
-        String tableName = prepareSourceTable(new String[] {"id", "name"}, null);
+        String tableName =
+                prepareSourceTable("lake_table_query_1", new String[] {"id", "name"}, null);
         assertThatThrownBy(() -> tEnv.executeSql(String.format("SELECT * FROM %s$lake", tableName)))
                 .cause()
                 .cause()
@@ -194,7 +195,7 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
 
     @Test
     void testLimitPrimaryTableScan() throws Exception {
-        String tableName = prepareSourceTable(new String[] {"id"}, null);
+        String tableName = prepareSourceTable("limit_primary_1", new String[] {"id"}, null);
         // normal scan
         String query = String.format("SELECT * FROM %s limit 2", tableName);
         CloseableIterator<Row> iterRows = tEnv.executeSql(query).collect();
@@ -311,7 +312,9 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
                         "Currently, Fluss only support queries on table with datalake enabled or point queries on primary key when it's in batch execution mode.");
 
         // test not support primary key now
-        String primaryTableName = prepareSourceTable(new String[] {"id"}, null);
+        String primaryTableName =
+                prepareSourceTable(
+                        "count_push_down_is_partition" + partitionTable, new String[] {"id"}, null);
         assertThatThrownBy(
                         () ->
                                 tEnv.explainSql(
@@ -323,9 +326,11 @@ class FlinkTableSourceBatchITCase extends FlinkTestBase {
                         "Currently, Fluss only support queries on table with datalake enabled or point queries on primary key when it's in batch execution mode.");
     }
 
-    private String prepareSourceTable(String[] keys, String partitionedKey) throws Exception {
+    private String prepareSourceTable(String namePrefix, String[] keys, String partitionedKey)
+            throws Exception {
         String tableName =
-                String.format("test_%s_%s", String.join("_", keys), RandomUtils.nextInt());
+                String.format(
+                        "%s_test_%s_%s", namePrefix, String.join("_", keys), RandomUtils.nextInt());
         if (partitionedKey == null) {
             tEnv.executeSql(
                     String.format(

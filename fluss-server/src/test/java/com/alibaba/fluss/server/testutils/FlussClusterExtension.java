@@ -70,6 +70,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.alibaba.fluss.server.utils.RpcMessageUtils.toServerNode;
@@ -361,7 +362,8 @@ public final class FlussClusterExtension
             retry(
                     Duration.ofMinutes(1),
                     () -> {
-                        MetadataResponse response = gateway.metadata(new MetadataRequest()).get();
+                        MetadataResponse response =
+                                gateway.metadata(new MetadataRequest()).get(1L, TimeUnit.MINUTES);
                         assertThat(response.hasCoordinatorServer()).isTrue();
                         // check coordinator server node
                         ServerNode coordinatorNode =

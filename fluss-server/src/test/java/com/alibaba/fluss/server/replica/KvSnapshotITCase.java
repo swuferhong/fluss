@@ -74,7 +74,8 @@ class KvSnapshotITCase {
         int tableNum = 3;
         List<TableBucket> tableBuckets = new ArrayList<>();
         for (int i = 0; i < tableNum; i++) {
-            TablePath tablePath = TablePath.of("test_db", "test_table_" + i);
+            TablePath tablePath =
+                    TablePath.of("kv_snapshot_test_db", "kv_snapshot_test_table_" + i);
             long tableId =
                     RpcMessageTestUtils.createTable(
                             FLUSS_CLUSTER_EXTENSION,

@@ -102,7 +102,7 @@ class FlinkCatalogITCase {
     void testCreateTable() throws Exception {
         // create a table will all supported data types
         tEnv.executeSql(
-                "create table test_table "
+                "create table test_catalog_create_table_table1 "
                         + "(a int not null primary key not enforced,"
                         + " b CHAR(3),"
                         + " c STRING not null COMMENT 'STRING COMMENT',"
@@ -148,7 +148,9 @@ class FlinkCatalogITCase {
                 .primaryKey("a");
         Schema expectedSchema = schemaBuilder.build();
         CatalogTable table =
-                (CatalogTable) catalog.getTable(new ObjectPath(DEFAULT_DB, "test_table"));
+                (CatalogTable)
+                        catalog.getTable(
+                                new ObjectPath(DEFAULT_DB, "test_catalog_create_table_table1"));
         assertThat(table.getUnresolvedSchema()).isEqualTo(expectedSchema);
     }
 
@@ -158,7 +160,7 @@ class FlinkCatalogITCase {
         assertThatThrownBy(
                         () ->
                                 tEnv.executeSql(
-                                        "create table test_table_unsupported"
+                                        "create table test_catalog_table_unsupported"
                                                 + " (a int, b int) partitioned by (b)"))
                 .cause()
                 .isInstanceOf(CatalogException.class)
@@ -169,12 +171,15 @@ class FlinkCatalogITCase {
 
     @Test
     void testCreateNoPkTable() throws Exception {
-        tEnv.executeSql("create table append_only_table(a int, b int) with ('bucket.num' = '10')");
+        tEnv.executeSql(
+                "create table test_catalog_append_only_table(a int, b int) with ('bucket.num' = '10')");
         Schema.Builder schemaBuilder = Schema.newBuilder();
         schemaBuilder.column("a", DataTypes.INT()).column("b", DataTypes.INT());
         Schema expectedSchema = schemaBuilder.build();
         CatalogTable table =
-                (CatalogTable) catalog.getTable(new ObjectPath(DEFAULT_DB, "append_only_table"));
+                (CatalogTable)
+                        catalog.getTable(
+                                new ObjectPath(DEFAULT_DB, "test_catalog_append_only_table"));
         assertThat(table.getUnresolvedSchema()).isEqualTo(expectedSchema);
         Map<String, String> expectedOptions = new HashMap<>();
         expectedOptions.put("bucket.num", "10");
@@ -184,7 +189,7 @@ class FlinkCatalogITCase {
     @Test
     void testCreatePartitionedTable() throws Exception {
         tEnv.executeSql(
-                "create table test_partitioned_table (a int, b string) partitioned by (b) "
+                "create table test_catalog_partitioned_table (a int, b string) partitioned by (b) "
                         + "with ('table.auto-partition.enabled' = 'true',"
                         + " 'table.auto-partition.time-unit' = 'day')");
         Schema.Builder schemaBuilder = Schema.newBuilder();
@@ -192,7 +197,8 @@ class FlinkCatalogITCase {
         Schema expectedSchema = schemaBuilder.build();
         CatalogTable table =
                 (CatalogTable)
-                        catalog.getTable(new ObjectPath(DEFAULT_DB, "test_partitioned_table"));
+                        catalog.getTable(
+                                new ObjectPath(DEFAULT_DB, "test_catalog_partitioned_table"));
         assertThat(table.getUnresolvedSchema()).isEqualTo(expectedSchema);
         assertThat(table.getPartitionKeys()).isEqualTo(Collections.singletonList("b"));
     }
@@ -238,7 +244,7 @@ class FlinkCatalogITCase {
         assertThatThrownBy(
                         () ->
                                 tEnv.executeSql(
-                                        "create table test_table_unsupported (a varchar(10))"))
+                                        "create table test_catalog_table_unsupported_1 (a varchar(10))"))
                 .cause()
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessage("Unsupported data type: VARCHAR(10)");
@@ -247,7 +253,7 @@ class FlinkCatalogITCase {
         assertThatThrownBy(
                         () ->
                                 tEnv.executeSql(
-                                        "create table test_table_unsupported (a varbinary(10))"))
+                                        "create table test_catalog_table_unsupported_1 (a varbinary(10))"))
                 .cause()
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessage("Unsupported data type: VARBINARY(10)");
@@ -256,7 +262,7 @@ class FlinkCatalogITCase {
         assertThatThrownBy(
                         () ->
                                 tEnv.executeSql(
-                                        "create table test_table_unsupported (a multiset<int>)"))
+                                        "create table test_catalog_table_unsupported_1 (a multiset<int>)"))
                 .cause()
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessage("Unsupported data type: MULTISET<INT>");
@@ -264,12 +270,12 @@ class FlinkCatalogITCase {
 
     @Test
     void testCreateDatabase() {
-        tEnv.executeSql("create database test_db");
+        tEnv.executeSql("create database test_catalog_db1");
         List<Row> databases =
                 CollectionUtil.iteratorToList(tEnv.executeSql("show databases").collect());
         assertThat(databases.toString())
-                .isEqualTo(String.format("[+I[%s], +I[test_db]]", DEFAULT_DB));
-        tEnv.executeSql("drop database test_db");
+                .isEqualTo(String.format("[+I[%s], +I[test_catalog_db1]]", DEFAULT_DB));
+        tEnv.executeSql("drop database test_catalog_db1");
         databases = CollectionUtil.iteratorToList(tEnv.executeSql("show databases").collect());
         assertThat(databases.toString()).isEqualTo(String.format("[+I[%s]]", DEFAULT_DB));
     }
@@ -278,9 +284,12 @@ class FlinkCatalogITCase {
     void testFactoryCannotFindForCreateTemporaryTable() {
         // create fluss temporary table is not supported
         tEnv.executeSql(
-                "create temporary table test_temp_table (a int, b int)"
+                "create temporary table test_catalog_cannot_found_temp_table (a int, b int)"
                         + " with ('connector' = 'fluss', 'bootstrap.servers' = 'localhost:9092')");
-        assertThatThrownBy(() -> tEnv.executeSql("insert into test_temp_table values (1, 2)"))
+        assertThatThrownBy(
+                        () ->
+                                tEnv.executeSql(
+                                        "insert into test_catalog_cannot_found_temp_table values (1, 2)"))
                 .cause()
                 .isInstanceOf(ValidationException.class)
                 .hasMessage("Cannot discover a connector using option: 'connector'='fluss'");
@@ -291,9 +300,12 @@ class FlinkCatalogITCase {
         // create fluss table under non-fluss catalog is not supported
         tEnv.executeSql("use catalog " + TableConfigOptions.TABLE_CATALOG_NAME.defaultValue());
         tEnv.executeSql(
-                "create table test_catalog_table (a int, b int)"
+                "create table test_catalog_cannot_found_table (a int, b int)"
                         + " with ('connector' = 'fluss', 'bootstrap.servers' = 'localhost:9092')");
-        assertThatThrownBy(() -> tEnv.executeSql("insert into test_catalog_table values (1, 2)"))
+        assertThatThrownBy(
+                        () ->
+                                tEnv.executeSql(
+                                        "insert into test_catalog_cannot_found_table values (1, 2)"))
                 .cause()
                 .isInstanceOf(ValidationException.class)
                 .hasMessage("Cannot discover a connector using option: 'connector'='fluss'");

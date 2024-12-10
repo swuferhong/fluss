@@ -161,7 +161,7 @@ class TableManagerITCase {
     @ValueSource(booleans = {true, false})
     void testDatabaseManagement(boolean isCoordinatorServer) throws Exception {
         AdminReadOnlyGateway gateway = getAdminOnlyGateway(isCoordinatorServer);
-        String db1 = "db1";
+        String db1 = "test_database_management_db1_is_coordinator_" + isCoordinatorServer;
         assertThat(gateway.databaseExists(newDatabaseExistsRequest(db1)).get().isExists())
                 .isFalse();
 
@@ -181,13 +181,16 @@ class TableManagerITCase {
                                         .get())
                 .cause()
                 .isInstanceOf(DatabaseAlreadyExistException.class)
-                .hasMessageContaining("Database db1 already exists.");
+                .hasMessageContaining(
+                        "Database test_database_management_db1_is_coordinator_"
+                                + isCoordinatorServer
+                                + " already exists.");
 
         // with ignore if exists, shouldn't throw exception again
         adminGateway.createDatabase(newCreateDatabaseRequest(db1, true)).get();
 
         // create another database
-        String db2 = "db2";
+        String db2 = "test_database_management_db2_is_coordinator_" + isCoordinatorServer;
         adminGateway.createDatabase(newCreateDatabaseRequest(db2, false)).get();
 
         // list database
@@ -218,7 +221,10 @@ class TableManagerITCase {
                                         .get())
                 .cause()
                 .isInstanceOf(DatabaseNotExistException.class)
-                .hasMessageContaining("Database db1 does not exist.");
+                .hasMessageContaining(
+                        "Database test_database_management_db1_is_coordinator_"
+                                + isCoordinatorServer
+                                + " does not exist.");
     }
 
     @ParameterizedTest
@@ -227,8 +233,8 @@ class TableManagerITCase {
         AdminReadOnlyGateway gateway = getAdminOnlyGateway(isCoordinatorServer);
         AdminGateway adminGateway = getAdminGateway();
 
-        String db1 = "db1";
-        String tb1 = "tb1";
+        String db1 = "table_manager_db1_is_coordinator_" + isCoordinatorServer;
+        String tb1 = "test_table_management_tb1_is_coordinator_" + isCoordinatorServer;
         TablePath tablePath = TablePath.of(db1, tb1);
         // first create a database
         adminGateway.createDatabase(newCreateDatabaseRequest(db1, false)).get();
@@ -296,7 +302,7 @@ class TableManagerITCase {
         adminGateway.createTable(newCreateTableRequest(tablePath, tableDescriptor, true)).get();
 
         // create another table without setting distribution
-        String tb2 = "tb2";
+        String tb2 = "test_table_management_tb2";
         TableDescriptor tableDescriptor1 = newTableWithoutSettingDistribution();
         adminGateway
                 .createTable(
@@ -338,8 +344,8 @@ class TableManagerITCase {
     @EnumSource(AutoPartitionTimeUnit.class)
     void testPartitionedTableManagement(AutoPartitionTimeUnit timeUnit) throws Exception {
         AdminGateway adminGateway = getAdminGateway();
-        String db1 = "db1";
-        String tb1 = "tb1_" + timeUnit.name();
+        String db1 = "test_partition_db1_" + timeUnit.name();
+        String tb1 = "test_partitioned_table_management_tb1_" + timeUnit.name();
         TablePath tablePath = TablePath.of(db1, tb1);
         // first create a database
         adminGateway.createDatabase(newCreateDatabaseRequest(db1, false)).get();
@@ -385,8 +391,8 @@ class TableManagerITCase {
     @Test
     void testCreateInvalidPartitionedTable() throws Exception {
         AdminGateway adminGateway = getAdminGateway();
-        String db1 = "db1";
-        String tb1 = "tb1";
+        String db1 = "test_create_invalid_db1";
+        String tb1 = "test_create_invalid_partitioned_table_tb1";
         TablePath tablePath = TablePath.of(db1, tb1);
         // first create a database
         adminGateway.createDatabase(newCreateDatabaseRequest(db1, false)).get();
@@ -442,8 +448,8 @@ class TableManagerITCase {
         AdminReadOnlyGateway gateway = getAdminOnlyGateway(isCoordinatorServer);
         AdminGateway adminGateway = getAdminGateway();
 
-        String db1 = "db1";
-        String tb1 = "tb1";
+        String db1 = "test_metadata_db1_is_coordinator_" + isCoordinatorServer;
+        String tb1 = "test_metadata_tb1_is_coordinator_" + isCoordinatorServer;
         TablePath tablePath = TablePath.of(db1, tb1);
         // first create a database
         adminGateway.createDatabase(newCreateDatabaseRequest(db1, false)).get();
@@ -507,8 +513,8 @@ class TableManagerITCase {
     void testMetadataWithPartition(boolean isCoordinatorServer) throws Exception {
         AdminReadOnlyGateway gateway = getAdminOnlyGateway(isCoordinatorServer);
         AdminGateway adminGateway = getAdminGateway();
-        String db1 = "db1";
-        String tb1 = "tb1";
+        String db1 = "test_metadata_with_partition_db1_is_coordinator_" + isCoordinatorServer;
+        String tb1 = "test_metadata_with_partition_tb1_is_coordinator_" + isCoordinatorServer;
         // create a partitioned table, and request a not exist partition, should throw partition not
         // exist exception
         TablePath tablePath = TablePath.of(db1, tb1);
@@ -564,7 +570,9 @@ class TableManagerITCase {
                 .cause()
                 .isInstanceOf(PartitionNotExistException.class)
                 .hasMessage(
-                        "Table partition 'db1.partitioned_tb(p=not_exist_partition)' does not exist.");
+                        "Table partition 'test_metadata_with_partition_db1_is_coordinator_"
+                                + isCoordinatorServer
+                                + ".partitioned_tb(p=not_exist_partition)' does not exist.");
     }
 
     private void checkBucketMetadata(int expectBucketCount, List<PbBucketMetadata> bucketMetadata) {
@@ -649,7 +657,7 @@ class TableManagerITCase {
         return TableDescriptor.builder()
                 .schema(builder.build())
                 .comment("partitioned table")
-                .distributedBy(16)
+                .distributedBy(3)
                 .partitionedBy("dt")
                 .property(ConfigOptions.TABLE_AUTO_PARTITION_ENABLED.key(), "true")
                 .property(
@@ -662,7 +670,7 @@ class TableManagerITCase {
         return TableDescriptor.builder()
                 .schema(newSchema())
                 .comment("first table")
-                .distributedBy(16, "a")
+                .distributedBy(3, "a")
                 .build();
     }
 

@@ -70,7 +70,7 @@ class LakeTableEnumeratorTest extends PaimonSyncTestBase {
         builder.build();
         JobClient jobClient = execEnv.executeAsync();
 
-        TablePath t1 = TablePath.of(DEFAULT_DB, "logTable");
+        TablePath t1 = TablePath.of(DEFAULT_DB, "lake_table_enumerator_test_logTable");
         Map<Integer, Long> bucketLogEndOffset = new HashMap<>();
         long t1Id = prepareLogTable(t1, DEFAULT_BUCKET_NUM, bucketLogEndOffset);
 
@@ -140,7 +140,7 @@ class LakeTableEnumeratorTest extends PaimonSyncTestBase {
 
     @Test
     void testPrimaryKeyTableEnumerator() throws Throwable {
-        TablePath t1 = TablePath.of(DEFAULT_DB, "pkTable");
+        TablePath t1 = TablePath.of(DEFAULT_DB, "lake_table_enumerator_test_pkTable");
         PaimonDataBaseSyncSinkBuilder builder = getDatabaseSyncSinkBuilder(execEnv);
         builder.build();
         JobClient jobClient = execEnv.executeAsync();

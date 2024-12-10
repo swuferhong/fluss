@@ -56,7 +56,7 @@ class FlinkSourceReaderTest extends FlinkTestBase {
 
     @Test
     void testHandlePartitionsRemovedEvent() throws Exception {
-        TablePath tablePath = TablePath.of(DEFAULT_DB, "test_partitioned_table");
+        TablePath tablePath = TablePath.of(DEFAULT_DB, "test_handle_partitions_remove_event_t1");
 
         TableDescriptor tableDescriptor = DEFAULT_AUTO_PARTITIONED_PK_TABLE_DESCRIPTOR;
         long tableId = createTable(tablePath, tableDescriptor);

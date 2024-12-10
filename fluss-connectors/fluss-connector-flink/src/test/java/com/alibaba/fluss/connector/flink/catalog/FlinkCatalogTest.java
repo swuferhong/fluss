@@ -72,7 +72,6 @@ class FlinkCatalogTest {
     private static final String CATALOG_NAME = "test-catalog";
     private static final String DEFAULT_DB = "default";
     static Catalog catalog;
-    private final ObjectPath tableInDefaultDb = new ObjectPath(DEFAULT_DB, "t1");
 
     private ResolvedSchema createSchema() {
         return new ResolvedSchema(
@@ -137,26 +136,27 @@ class FlinkCatalogTest {
     @Test
     void testCreateTable() throws Exception {
         Map<String, String> options = new HashMap<>();
-        assertThatThrownBy(() -> catalog.getTable(tableInDefaultDb))
+        ObjectPath objectPath = new ObjectPath(DEFAULT_DB, "catalog_create_table_test_t1");
+        assertThatThrownBy(() -> catalog.getTable(objectPath))
                 .isInstanceOf(TableNotExistException.class)
                 .hasMessage(
                         String.format(
                                 "Table (or view) %s does not exist in Catalog %s.",
-                                tableInDefaultDb, CATALOG_NAME));
+                                objectPath, CATALOG_NAME));
         CatalogTable table = this.newCatalogTable(options);
-        catalog.createTable(this.tableInDefaultDb, table, false);
-        assertThat(catalog.tableExists(this.tableInDefaultDb)).isTrue();
+        catalog.createTable(objectPath, table, false);
+        assertThat(catalog.tableExists(objectPath)).isTrue();
         // create the table again, should throw exception with ignore if exist = false
-        assertThatThrownBy(() -> catalog.createTable(this.tableInDefaultDb, table, false))
+        assertThatThrownBy(() -> catalog.createTable(objectPath, table, false))
                 .isInstanceOf(TableAlreadyExistException.class)
                 .hasMessage(
                         String.format(
                                 "Table (or view) %s already exists in Catalog %s.",
-                                this.tableInDefaultDb, CATALOG_NAME));
+                                objectPath, CATALOG_NAME));
         // should be ok since we set ignore if exist = true
-        catalog.createTable(this.tableInDefaultDb, table, true);
+        catalog.createTable(objectPath, table, true);
         // get the table and check
-        CatalogBaseTable tableCreated = catalog.getTable(this.tableInDefaultDb);
+        CatalogBaseTable tableCreated = catalog.getTable(objectPath);
 
         // put bucket key option
         Map<String, String> addedOptions = new HashMap<>();
@@ -169,18 +169,18 @@ class FlinkCatalogTest {
         // list tables
         List<String> tables = catalog.listTables(DEFAULT_DB);
         assertThat(tables.size()).isEqualTo(1L);
-        assertThat(tables.get(0)).isEqualTo(this.tableInDefaultDb.getObjectName());
-        catalog.dropTable(this.tableInDefaultDb, false);
+        assertThat(tables.get(0)).isEqualTo(objectPath.getObjectName());
+        catalog.dropTable(objectPath, false);
         assertThat(catalog.listTables(DEFAULT_DB)).isEmpty();
         // drop the table again, should throw exception with ignoreIfNotExists = false
-        assertThatThrownBy(() -> catalog.dropTable(this.tableInDefaultDb, false))
+        assertThatThrownBy(() -> catalog.dropTable(objectPath, false))
                 .isInstanceOf(TableNotExistException.class)
                 .hasMessage(
                         String.format(
                                 "Table (or view) %s does not exist in Catalog %s.",
-                                this.tableInDefaultDb, CATALOG_NAME));
+                                objectPath, CATALOG_NAME));
         // should be ok since we set ignoreIfNotExists = true
-        catalog.dropTable(this.tableInDefaultDb, true);
+        catalog.dropTable(objectPath, true);
         // create table from an non-exist db
         ObjectPath nonExistDbPath = ObjectPath.fromString("non.exist");
 
@@ -204,8 +204,8 @@ class FlinkCatalogTest {
                                 Collections.singletonList("first"),
                                 options),
                         resolvedSchema);
-        catalog.createTable(this.tableInDefaultDb, table2, false);
-        tableCreated = catalog.getTable(this.tableInDefaultDb);
+        catalog.createTable(objectPath, table2, false);
+        tableCreated = catalog.getTable(objectPath);
         // need to over write the option
         addedOptions.put(BUCKET_KEY.key(), "third");
 
@@ -216,13 +216,14 @@ class FlinkCatalogTest {
 
     @Test
     void testCreateTableWithBucket() throws Exception {
+        ObjectPath objectPath = new ObjectPath(DEFAULT_DB, "create_table_with_bucket_test_t1");
         // for pk table;
         // set bucket count and bucket key;
         Map<String, String> options = new HashMap<>();
         options.put(BUCKET_NUMBER.key(), "10");
         options.put(BUCKET_KEY.key(), "first,third");
 
-        createAndCheckAndDropTable(createSchema(), tableInDefaultDb, options);
+        createAndCheckAndDropTable(createSchema(), objectPath, options);
 
         // for non pk table
         // set nothing;
@@ -231,18 +232,18 @@ class FlinkCatalogTest {
         options = new HashMap<>();
         // default is 1
         options.put(BUCKET_NUMBER.key(), "1");
-        createAndCheckAndDropTable(schema, tableInDefaultDb, options);
+        createAndCheckAndDropTable(schema, objectPath, options);
 
         // set bucket count;
         options.put(BUCKET_NUMBER.key(), "10");
-        createAndCheckAndDropTable(schema, tableInDefaultDb, options);
+        createAndCheckAndDropTable(schema, objectPath, options);
 
         // set bucket count and bucket key;
         options.put("bucket-key", "first");
-        createAndCheckAndDropTable(schema, tableInDefaultDb, options);
+        createAndCheckAndDropTable(schema, objectPath, options);
 
         // only set bucket key
-        createAndCheckAndDropTable(schema, tableInDefaultDb, options);
+        createAndCheckAndDropTable(schema, objectPath, options);
     }
 
     @Test
@@ -270,7 +271,7 @@ class FlinkCatalogTest {
                         Collections.emptyList(),
                         new HashMap<>(options));
         CatalogTable originResolvedTable = new ResolvedCatalogTable(origin, resolvedSchema);
-        ObjectPath path = new ObjectPath(DEFAULT_DB, "t2");
+        ObjectPath path = new ObjectPath(DEFAULT_DB, "create_table_with_watermark_t2");
         catalog.createTable(path, originResolvedTable, false);
         CatalogTable tableCreated = (CatalogTable) catalog.getTable(path);
         // resolve it and check
@@ -293,11 +294,12 @@ class FlinkCatalogTest {
 
     @Test
     void testUnsupportedTable() {
+        ObjectPath objectPath = new ObjectPath(DEFAULT_DB, "unsupported_table_test_t1");
         // test create non fluss table
         Map<String, String> options = new HashMap<>();
         options.put(FactoryUtil.CONNECTOR.key(), "kafka");
         final CatalogTable table = this.newCatalogTable(options);
-        assertThatThrownBy(() -> catalog.createTable(this.tableInDefaultDb, table, false))
+        assertThatThrownBy(() -> catalog.createTable(objectPath, table, false))
                 .isInstanceOf(CatalogException.class)
                 .hasMessageContaining("Fluss Catalog only supports fluss tables");
         options = new HashMap<>();
@@ -312,7 +314,7 @@ class FlinkCatalogTest {
                         UniqueConstraint.primaryKey(
                                 "PK_first", Collections.singletonList("first")));
         CatalogTable table1 = this.newCatalogTable(resolvedSchema, options);
-        assertThatThrownBy(() -> catalog.createTable(this.tableInDefaultDb, table1, false))
+        assertThatThrownBy(() -> catalog.createTable(objectPath, table1, false))
                 .isInstanceOf(CatalogException.class)
                 .hasMessage("Metadata column %s is not supported.", metaDataCol);
     }

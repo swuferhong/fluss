@@ -31,6 +31,7 @@ import com.alibaba.fluss.row.indexed.IndexedRow;
 import com.alibaba.fluss.types.DataTypes;
 import com.alibaba.fluss.types.RowType;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -46,7 +47,6 @@ import static com.alibaba.fluss.record.TestData.DATA1_PARTITIONED_TABLE_INFO;
 import static com.alibaba.fluss.record.TestData.DATA1_ROW_TYPE;
 import static com.alibaba.fluss.record.TestData.DATA1_SCHEMA;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
 import static com.alibaba.fluss.testutils.DataTestUtils.compactedRow;
 import static com.alibaba.fluss.testutils.DataTestUtils.row;
 import static org.apache.commons.lang3.RandomStringUtils.randomAlphanumeric;
@@ -55,14 +55,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** ITCase for {@link FlussLogScanner}. */
 public class FlussLogScannerITCase extends ClientToServerITCaseBase {
 
+    @BeforeEach
+    protected void setup() throws Exception {
+        super.setup();
+    }
+
     @Test
     void testPoll() throws Exception {
-        createTable(DATA1_TABLE_PATH, DATA1_TABLE_INFO.getTableDescriptor(), false);
+        TablePath tablePath = new TablePath("test_db_1", "test_poll_t1");
+        createTable(tablePath, DATA1_TABLE_INFO.getTableDescriptor(), false);
 
         // append a batch of data.
         int recordSize = 10;
         List<IndexedRow> expectedRows = new ArrayList<>();
-        try (Table table = conn.getTable(DATA1_TABLE_PATH)) {
+        try (Table table = conn.getTable(tablePath)) {
             AppendWriter appendWriter = table.getAppendWriter();
             for (int i = 0; i < recordSize; i++) {
                 IndexedRow row = row(DATA1_ROW_TYPE, new Object[] {i, "a"});
@@ -89,16 +95,18 @@ public class FlussLogScannerITCase extends ClientToServerITCaseBase {
 
     @Test
     void testPollWhileCreateTableNotReady() throws Exception {
+        TablePath tablePath =
+                new TablePath("test_db_1", "test_poll_while_create_table_not_ready_t1");
         // create one table with 100 buckets.
         int bucketNumber = 100;
         TableDescriptor tableDescriptor =
                 TableDescriptor.builder().schema(DATA1_SCHEMA).distributedBy(bucketNumber).build();
-        createTable(DATA1_TABLE_PATH, tableDescriptor, false);
+        createTable(tablePath, tableDescriptor, false);
 
         // append a batch of data.
         int recordSize = 10;
         List<IndexedRow> expectedRows = new ArrayList<>();
-        try (Table table = conn.getTable(DATA1_TABLE_PATH)) {
+        try (Table table = conn.getTable(tablePath)) {
             AppendWriter appendWriter = table.getAppendWriter();
             for (int i = 0; i < recordSize; i++) {
                 IndexedRow row = row(DATA1_ROW_TYPE, new Object[] {i, "a"});
@@ -125,12 +133,13 @@ public class FlussLogScannerITCase extends ClientToServerITCaseBase {
 
     @Test
     void testLogScannerMultiThreadAccess() throws Exception {
-        createTable(DATA1_TABLE_PATH, DATA1_TABLE_INFO.getTableDescriptor(), false);
+        TablePath tablePath = new TablePath("test_db_1", "test_log_scanner_multi_thread_access_t1");
+        createTable(tablePath, DATA1_TABLE_INFO.getTableDescriptor(), false);
 
         // append a batch of data.
         int recordSize = 10;
         List<IndexedRow> expectedRows = new ArrayList<>();
-        try (Table table = conn.getTable(DATA1_TABLE_PATH)) {
+        try (Table table = conn.getTable(tablePath)) {
             AppendWriter appendWriter = table.getAppendWriter();
             for (int i = 0; i < recordSize; i++) {
                 IndexedRow row = row(DATA1_ROW_TYPE, new Object[] {i, "a"});
@@ -166,7 +175,7 @@ public class FlussLogScannerITCase extends ClientToServerITCaseBase {
     @Test
     void testLogHeavyWriteAndScan() throws Exception {
         final String db = "db";
-        final String tbl = "kv_heavy_table";
+        final String tbl = "log_heavy_table_and_scan";
         // create table
         TableDescriptor descriptor =
                 TableDescriptor.builder()
@@ -220,7 +229,7 @@ public class FlussLogScannerITCase extends ClientToServerITCaseBase {
     @Test
     void testKvHeavyWriteAndScan() throws Exception {
         final String db = "db";
-        final String tbl = "kv_heavy_table";
+        final String tbl = "kv_heavy_table_and_scan";
         // create table
         TableDescriptor descriptor =
                 TableDescriptor.builder()

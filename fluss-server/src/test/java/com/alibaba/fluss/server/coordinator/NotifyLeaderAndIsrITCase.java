@@ -19,6 +19,7 @@ package com.alibaba.fluss.server.coordinator;
 import com.alibaba.fluss.config.ConfigOptions;
 import com.alibaba.fluss.config.Configuration;
 import com.alibaba.fluss.metadata.TableBucket;
+import com.alibaba.fluss.metadata.TablePath;
 import com.alibaba.fluss.server.replica.Replica;
 import com.alibaba.fluss.server.replica.ReplicaManager;
 import com.alibaba.fluss.server.tablet.TabletServer;
@@ -35,7 +36,6 @@ import java.time.Duration;
 import java.util.stream.Collectors;
 
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.retry;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitValue;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,11 +58,10 @@ public class NotifyLeaderAndIsrITCase {
 
     @Test
     void testNotifyLeaderAndIsr() throws Exception {
+        TablePath tablePath = TablePath.of("test_db_1", "test_notify_leader_and_isr_t1");
         long tableId =
                 RpcMessageTestUtils.createTable(
-                        FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
-                        DATA1_TABLE_INFO.getTableDescriptor());
+                        FLUSS_CLUSTER_EXTENSION, tablePath, DATA1_TABLE_INFO.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
         LeaderAndIsr leaderAndIsr =

@@ -22,6 +22,8 @@ import com.alibaba.fluss.client.metrics.TestingScannerMetricGroup;
 import com.alibaba.fluss.client.scanner.RemoteFileDownloader;
 import com.alibaba.fluss.client.scanner.ScanRecord;
 import com.alibaba.fluss.metadata.TableBucket;
+import com.alibaba.fluss.metadata.TableInfo;
+import com.alibaba.fluss.metadata.TablePath;
 import com.alibaba.fluss.record.MemoryLogRecords;
 import com.alibaba.fluss.rpc.RpcClient;
 import com.alibaba.fluss.rpc.gateway.TabletServerGateway;
@@ -38,8 +40,8 @@ import java.util.List;
 import java.util.Map;
 
 import static com.alibaba.fluss.record.TestData.DATA1;
+import static com.alibaba.fluss.record.TestData.DATA1_TABLE_DESCRIPTOR;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
 import static com.alibaba.fluss.server.testutils.RpcMessageTestUtils.newProduceLogRequest;
 import static com.alibaba.fluss.testutils.DataTestUtils.genMemoryLogRecordsByObject;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.retry;
@@ -48,34 +50,39 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Test for {@link LogFetcher}. */
 public class LogFetcherTest extends ClientToServerITCaseBase {
     private LogFetcher logFetcher;
-    private long tableId;
-    private final int bucketId0 = 0;
-    private final int bucketId1 = 1;
+    private RpcClient rpcClient;
+    private MetadataUpdater metadataUpdater;
 
     // TODO covert this test to UT as kafka.
 
     @BeforeEach
     protected void setup() throws Exception {
         super.setup();
+        this.rpcClient = FLUSS_CLUSTER_EXTENSION.getRpcClient();
+        this.metadataUpdater = new MetadataUpdater(clientConf, rpcClient);
+    }
 
-        // We create table data1NonPkTablePath previously.
-        tableId = createTable(DATA1_TABLE_PATH, DATA1_TABLE_INFO.getTableDescriptor(), false);
+    @Test
+    void testFetch() throws Exception {
+        // We create table previously.
+        TablePath tablePath = TablePath.of("test_db_1", "test_table_for_log_fetcher");
+        long tableId = createTable(tablePath, DATA1_TABLE_INFO.getTableDescriptor(), false);
         FLUSS_CLUSTER_EXTENSION.waitUtilTableReady(tableId);
-
-        RpcClient rpcClient = FLUSS_CLUSTER_EXTENSION.getRpcClient();
-        MetadataUpdater metadataUpdater = new MetadataUpdater(clientConf, rpcClient);
-        metadataUpdater.checkAndUpdateTableMetadata(Collections.singleton(DATA1_TABLE_PATH));
+        metadataUpdater.checkAndUpdateTableMetadata(Collections.singleton(tablePath));
 
         Map<TableBucket, Long> scanBuckets = new HashMap<>();
         // add bucket 0 and bucket 1 to log scanner status.
+        int bucketId0 = 0;
         scanBuckets.put(new TableBucket(tableId, bucketId0), 0L);
+        int bucketId1 = 1;
         scanBuckets.put(new TableBucket(tableId, bucketId1), 0L);
         LogScannerStatus logScannerStatus = new LogScannerStatus();
         logScannerStatus.assignScanBuckets(scanBuckets);
         TestingScannerMetricGroup scannerMetricGroup = TestingScannerMetricGroup.newInstance();
+        TableInfo tableInfo = new TableInfo(tablePath, tableId, DATA1_TABLE_DESCRIPTOR, 1);
         logFetcher =
                 new LogFetcher(
-                        DATA1_TABLE_INFO,
+                        tableInfo,
                         null,
                         rpcClient,
                         logScannerStatus,
@@ -83,10 +90,7 @@ public class LogFetcherTest extends ClientToServerITCaseBase {
                         metadataUpdater,
                         scannerMetricGroup,
                         new RemoteFileDownloader(1));
-    }
 
-    @Test
-    void testFetch() throws Exception {
         // add one batch records to tb0.
         TableBucket tb0 = new TableBucket(tableId, bucketId0);
         addRecordsToBucket(tb0, genMemoryLogRecordsByObject(DATA1), 0L);

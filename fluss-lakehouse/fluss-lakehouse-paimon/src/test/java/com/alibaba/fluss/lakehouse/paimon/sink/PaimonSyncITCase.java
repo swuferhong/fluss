@@ -70,7 +70,7 @@ class PaimonSyncITCase extends PaimonSyncTestBase {
     @Test
     void testDatabaseSync() throws Exception {
         // create a pk table, write some records and wait until snapshot finished
-        TablePath t1 = TablePath.of(DEFAULT_DB, "pkTable");
+        TablePath t1 = TablePath.of(DEFAULT_DB, "paimon_sync_test_pkTable");
         long t1Id = createPkTable(t1);
         TableBucket t1Bucket = new TableBucket(t1Id, 0);
         // write records
@@ -94,7 +94,7 @@ class PaimonSyncITCase extends PaimonSyncTestBase {
         checkDataInPaimonPrimayKeyTable(t1, rows);
 
         // then, create another log table
-        TablePath t2 = TablePath.of(DEFAULT_DB, "logTable");
+        TablePath t2 = TablePath.of(DEFAULT_DB, "paimon_sync_test_logTable");
         long t2Id = createLogTable(t2);
         TableBucket t2Bucket = new TableBucket(t2Id, 0);
         List<InternalRow> flussRows = new ArrayList<>();
@@ -134,7 +134,8 @@ class PaimonSyncITCase extends PaimonSyncTestBase {
         checkDataInPaimonPrimayKeyTable(t1, rows);
 
         // then create partitioned table and wait partitions are ready
-        TablePath partitionedTablePath = TablePath.of(DEFAULT_DB, "partitionedTable");
+        TablePath partitionedTablePath =
+                TablePath.of(DEFAULT_DB, "paimon_sync_test_partitionedTable");
         Tuple2<Long, TableDescriptor> tableIdAndDescriptor =
                 createPartitionedTable(partitionedTablePath);
         Map<Long, String> partitionNameByIds =

@@ -126,9 +126,6 @@ public class FlinkTestBase {
 
     protected static final String DEFAULT_DB = "test-flink-db";
 
-    protected static final TablePath DEFAULT_TABLE_PATH =
-            TablePath.of(DEFAULT_DB, "test-flink-table");
-
     protected static Connection conn;
     protected static Admin admin;
 

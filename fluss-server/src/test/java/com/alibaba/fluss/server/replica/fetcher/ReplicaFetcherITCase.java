@@ -21,6 +21,7 @@ import com.alibaba.fluss.config.Configuration;
 import com.alibaba.fluss.metadata.TableBucket;
 import com.alibaba.fluss.metadata.TableDescriptor;
 import com.alibaba.fluss.metadata.TableInfo;
+import com.alibaba.fluss.metadata.TablePath;
 import com.alibaba.fluss.record.KvRecordBatch;
 import com.alibaba.fluss.record.LogRecords;
 import com.alibaba.fluss.rpc.entity.FetchLogResultForBucket;
@@ -53,9 +54,6 @@ import static com.alibaba.fluss.record.TestData.DATA1_ROW_TYPE;
 import static com.alibaba.fluss.record.TestData.DATA1_SCHEMA;
 import static com.alibaba.fluss.record.TestData.DATA1_SCHEMA_PK;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_ID;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_ID_PK;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH_PK;
 import static com.alibaba.fluss.record.TestData.DATA_1_WITH_KEY_AND_VALUE;
 import static com.alibaba.fluss.record.TestData.EXPECTED_LOG_RESULTS_FOR_DATA_1_WITH_PK;
 import static com.alibaba.fluss.server.testutils.KvTestUtils.assertLookupResponse;
@@ -91,10 +89,11 @@ public class ReplicaFetcherITCase {
 
     @Test
     void testProduceLogNeedAck() throws Exception {
+        TablePath tablePath = TablePath.of("test_db1", "test_produce_log_need_ack_t1");
         // set bucket count to 1 to easy for debug.
         TableInfo data1NonPkTableInfo =
                 new TableInfo(
-                        DATA1_TABLE_PATH,
+                        tablePath,
                         DATA1_TABLE_ID,
                         TableDescriptor.builder()
                                 .schema(DATA1_SCHEMA)
@@ -109,7 +108,7 @@ public class ReplicaFetcherITCase {
         long tableId =
                 createTable(
                         FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
+                        tablePath,
                         data1NonPkTableInfo.getTableDescriptor());
         int bucketId = 0;
         TableBucket tb = new TableBucket(tableId, bucketId);
@@ -180,7 +179,8 @@ public class ReplicaFetcherITCase {
     @Test
     void testPutKvNeedAck() throws Exception {
         // set bucket count to 1 to easy for debug.
-        TableInfo data1PkTableInfo = createPkTable();
+        TablePath tablePath = TablePath.of("test_db1", "test_put_kv_need_ack_t1");
+        TableInfo data1PkTableInfo = createPkTable(tablePath, 150003L);
 
         // wait until all the gateway has same metadata because the follower fetcher manager need
         // to get the leader address from server metadata while make follower.
@@ -188,9 +188,7 @@ public class ReplicaFetcherITCase {
 
         long tableId =
                 createTable(
-                        FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH_PK,
-                        data1PkTableInfo.getTableDescriptor());
+                        FLUSS_CLUSTER_EXTENSION, tablePath, data1PkTableInfo.getTableDescriptor());
         int bucketId = 0;
         TableBucket tb = new TableBucket(tableId, bucketId);
 
@@ -261,14 +259,13 @@ public class ReplicaFetcherITCase {
 
     @Test
     void testFlushForPutKvNeedAck() throws Exception {
-        TableInfo data1PkTableInfo = createPkTable();
+        TablePath tablePath = TablePath.of("test_db1", "test_flush_for_put_kv_need_ack_t1");
+        TableInfo data1PkTableInfo = createPkTable(tablePath, 150010L);
 
         // create a table and wait all replica ready
         long tableId =
                 createTable(
-                        FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH_PK,
-                        data1PkTableInfo.getTableDescriptor());
+                        FLUSS_CLUSTER_EXTENSION, tablePath, data1PkTableInfo.getTableDescriptor());
         int bucketId = 0;
         TableBucket tb = new TableBucket(tableId, bucketId);
 
@@ -335,10 +332,10 @@ public class ReplicaFetcherITCase {
         }
     }
 
-    private TableInfo createPkTable() {
+    private TableInfo createPkTable(TablePath tablePath, long tableId) {
         return new TableInfo(
-                DATA1_TABLE_PATH_PK,
-                DATA1_TABLE_ID_PK,
+                tablePath,
+                tableId,
                 TableDescriptor.builder().schema(DATA1_SCHEMA_PK).distributedBy(1, "a").build(),
                 1);
     }

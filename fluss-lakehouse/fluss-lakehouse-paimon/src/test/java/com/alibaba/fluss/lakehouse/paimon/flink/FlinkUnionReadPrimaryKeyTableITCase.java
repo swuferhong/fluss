@@ -65,7 +65,8 @@ class FlinkUnionReadPrimaryKeyTableITCase extends FlinkUnionReadTestBase {
         builder.build();
         JobClient jobClient = execEnv.executeAsync();
 
-        String tableName = "pkTable_" + (isPartitioned ? "partitioned" : "non_partitioned");
+        String tableName =
+                "union_read_test_pkTable_" + (isPartitioned ? "partitioned" : "non_partitioned");
 
         TablePath t1 = TablePath.of(DEFAULT_DB, tableName);
         Map<TableBucket, Long> bucketLogEndOffset = new HashMap<>();

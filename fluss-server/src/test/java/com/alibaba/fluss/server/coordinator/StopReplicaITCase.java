@@ -41,8 +41,6 @@ import java.util.List;
 
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO_PK;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH_PK;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.retry;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.waitValue;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,7 +66,7 @@ public class StopReplicaITCase {
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void testStopReplica(boolean isPkTable) throws Exception {
-        TablePath tablePath = isPkTable ? DATA1_TABLE_PATH_PK : DATA1_TABLE_PATH;
+        TablePath tablePath = TablePath.of("test_db_1", "test_t1_stop_replica_is_pk_" + isPkTable);
         TableInfo tableInfo = isPkTable ? DATA1_TABLE_INFO_PK : DATA1_TABLE_INFO;
 
         // wait until all the gateway has same metadata because the follower fetcher manager need

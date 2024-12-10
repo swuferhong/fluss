@@ -111,12 +111,13 @@ class FlinkMetricsITCase extends FlinkTestBase {
                                         .column("name", DataTypes.STRING())
                                         .build())
                         .build();
-        TablePath tablePath = TablePath.of(DEFAULT_DB, "test");
+        TablePath tablePath = TablePath.of(DEFAULT_DB, "test_metrics_report_t1");
         createTable(tablePath, tableDescriptor);
 
         // test write
         TableResult tableResult =
-                tEnv.executeSql("insert into test values (1, 'name1'), (2, 'name2'), (3, 'name3')");
+                tEnv.executeSql(
+                        "insert into test_metrics_report_t1 values (1, 'name1'), (2, 'name2'), (3, 'name3')");
         JobClient client = tableResult.getJobClient().get();
         JobID jobID = client.getJobID();
         tableResult.await();
@@ -131,7 +132,7 @@ class FlinkMetricsITCase extends FlinkTestBase {
         assertThat((Long) ((Gauge<?>) sendLatencyMetrics).getValue()).isGreaterThan(0);
 
         // test scan
-        tableResult = tEnv.executeSql("select * from test");
+        tableResult = tEnv.executeSql("select * from test_metrics_report_t1");
         client = tableResult.getJobClient().get();
         jobID = client.getJobID();
         assertResultsIgnoreOrder(

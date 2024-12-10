@@ -68,7 +68,7 @@ class FlinkSourceSplitReaderTest extends FlinkTestBase {
 
     @Test
     void testSanityCheck() throws Exception {
-        TablePath tablePath1 = TablePath.of(DEFAULT_DB, "test1");
+        TablePath tablePath1 = TablePath.of(DEFAULT_DB, "test_sanity_check_t1");
         Schema schema1 =
                 Schema.newBuilder()
                         .primaryKey("id")

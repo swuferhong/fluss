@@ -49,9 +49,7 @@ import java.util.Map;
 
 import static com.alibaba.fluss.record.TestData.DATA1_ROW_TYPE;
 import static com.alibaba.fluss.record.TestData.DATA1_SCHEMA;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
 import static com.alibaba.fluss.record.TestData.DATA2_ROW_TYPE;
-import static com.alibaba.fluss.record.TestData.DATA2_TABLE_PATH;
 import static com.alibaba.fluss.testutils.DataTestUtils.row;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -76,14 +74,15 @@ public class RemoteLogScannerITCase {
 
     @Test
     void testScanFromRemote() throws Exception {
+        TablePath tablePath = TablePath.of("test_db1", "test_scan_from_remote_table_1");
         TableDescriptor tableDescriptor =
                 TableDescriptor.builder().schema(DATA1_SCHEMA).distributedBy(1).build();
-        long tableId = createTable(DATA1_TABLE_PATH, tableDescriptor);
+        long tableId = createTable(tablePath, tableDescriptor);
 
         // append a batch of data.
         int recordSize = 20;
         List<InternalRow> expectedRows = new ArrayList<>();
-        Table table = conn.getTable(DATA1_TABLE_PATH);
+        Table table = conn.getTable(tablePath);
         AppendWriter appendWriter = table.getAppendWriter();
         for (int i = 0; i < recordSize; i++) {
             InternalRow row = row(DATA1_ROW_TYPE, new Object[] {i, "aaaaa"});
@@ -120,7 +119,8 @@ public class RemoteLogScannerITCase {
                         .column("c", DataTypes.STRING())
                         .withComment("c is adding column")
                         .build();
-        final TablePath tablePath = DATA2_TABLE_PATH;
+        final TablePath tablePath =
+                new TablePath("test_db1", "test_partition_table_fetch_from_remote");
 
         TableDescriptor partitionTableDescriptor =
                 TableDescriptor.builder()

@@ -20,6 +20,7 @@ import com.alibaba.fluss.config.ConfigOptions;
 import com.alibaba.fluss.metadata.TableBucket;
 import com.alibaba.fluss.metadata.TableDescriptor;
 import com.alibaba.fluss.metadata.TableInfo;
+import com.alibaba.fluss.metadata.TablePath;
 import com.alibaba.fluss.rpc.gateway.CoordinatorGateway;
 import com.alibaba.fluss.rpc.gateway.TabletServerGateway;
 import com.alibaba.fluss.rpc.messages.CommitLakeTableSnapshotRequest;
@@ -42,7 +43,6 @@ import java.util.Map;
 import static com.alibaba.fluss.record.TestData.DATA1;
 import static com.alibaba.fluss.record.TestData.DATA1_SCHEMA;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_ID;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
 import static com.alibaba.fluss.testutils.DataTestUtils.genMemoryLogRecordsByObject;
 import static com.alibaba.fluss.testutils.common.CommonTestUtils.retry;
 import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
@@ -65,7 +65,7 @@ class CommitLakeTableSnapshotITCase {
 
     @Test
     void testCommitDataLakeData() throws Exception {
-        long tableId = createLogTable();
+        long tableId = createLogTable(TablePath.of("test_db_1", "test_lake_commit_data_t1"));
 
         for (int bucket = 0; bucket < BUCKET_NUM; bucket++) {
             TableBucket tb = new TableBucket(tableId, bucket);
@@ -148,10 +148,10 @@ class CommitLakeTableSnapshotITCase {
         return commitLakeTableSnapshotRequest;
     }
 
-    private long createLogTable() throws Exception {
+    private long createLogTable(TablePath tablePath) throws Exception {
         TableInfo data1NonPkTableInfo =
                 new TableInfo(
-                        DATA1_TABLE_PATH,
+                        tablePath,
                         DATA1_TABLE_ID,
                         TableDescriptor.builder()
                                 .schema(DATA1_SCHEMA)
@@ -160,8 +160,6 @@ class CommitLakeTableSnapshotITCase {
                                 .build(),
                         1);
         return RpcMessageTestUtils.createTable(
-                FLUSS_CLUSTER_EXTENSION,
-                DATA1_TABLE_PATH,
-                data1NonPkTableInfo.getTableDescriptor());
+                FLUSS_CLUSTER_EXTENSION, tablePath, data1NonPkTableInfo.getTableDescriptor());
     }
 }

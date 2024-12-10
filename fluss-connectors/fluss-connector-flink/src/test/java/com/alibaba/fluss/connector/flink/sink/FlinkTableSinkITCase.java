@@ -125,10 +125,10 @@ class FlinkTableSinkITCase {
     @Test
     void testAppendLog() throws Exception {
         tEnv.executeSql(
-                "create table sink_test (a int not null, b bigint, c string) with "
+                "create table test_append_log_sink_test (a int not null, b bigint, c string) with "
                         + "('bucket.num' = '3')");
         tEnv.executeSql(
-                        "INSERT INTO sink_test(a, b, c) "
+                        "INSERT INTO test_append_log_sink_test(a, b, c) "
                                 + "VALUES (1, 3501, 'Tim'), "
                                 + "(2, 3502, 'Fabian'), "
                                 + "(3, 3503, 'coco'), "
@@ -137,7 +137,8 @@ class FlinkTableSinkITCase {
                                 + "(6, 3506, 'stave')")
                 .await();
 
-        CloseableIterator<Row> rowIter = tEnv.executeSql("select * from sink_test").collect();
+        CloseableIterator<Row> rowIter =
+                tEnv.executeSql("select * from test_append_log_sink_test").collect();
         List<String> expectedRows =
                 Arrays.asList(
                         "+I[1, 3501, Tim]", "+I[2, 3502, Fabian]",
@@ -149,10 +150,10 @@ class FlinkTableSinkITCase {
     @Test
     void testAppendLogWithBucketKey() throws Exception {
         tEnv.executeSql(
-                "create table sink_test (a int not null, b bigint, c string) with "
+                "create table append_log_with_bucket_key_sink (a int not null, b bigint, c string) with "
                         + "('bucket.num' = '3', 'bucket.key' = 'c')");
         tEnv.executeSql(
-                        "INSERT INTO sink_test(a, b, c) "
+                        "INSERT INTO append_log_with_bucket_key_sink(a, b, c) "
                                 + "VALUES (1, 3501, 'Tim'), "
                                 + "(2, 3502, 'Fabian'), "
                                 + "(3, 3503, 'Tim'), "
@@ -166,7 +167,8 @@ class FlinkTableSinkITCase {
                                 + "(12, 3512, 'Tim')")
                 .await();
 
-        CloseableIterator<Row> rowIter = tEnv.executeSql("select * from sink_test").collect();
+        CloseableIterator<Row> rowIter =
+                tEnv.executeSql("select * from append_log_with_bucket_key_sink").collect();
         //noinspection ArraysAsListWithZeroOrOneArgument
         List<List<String>> expectedGroups =
                 Arrays.asList(
@@ -208,10 +210,10 @@ class FlinkTableSinkITCase {
     @Test
     void testAppendLogWithRoundRobin() throws Exception {
         tEnv.executeSql(
-                "create table sink_test (a int not null, b bigint, c string) with "
+                "create table append_log_with_round_robin_sink (a int not null, b bigint, c string) with "
                         + "('bucket.num' = '3', 'client.writer.bucket.no-key-assigner' = 'round_robin')");
         tEnv.executeSql(
-                        "INSERT INTO sink_test(a, b, c) "
+                        "INSERT INTO append_log_with_round_robin_sink(a, b, c) "
                                 + "VALUES (1, 3501, 'Tim'), "
                                 + "(2, 3502, 'Fabian'), "
                                 + "(3, 3503, 'coco'), "
@@ -223,7 +225,8 @@ class FlinkTableSinkITCase {
         Map<Integer, List<String>> rows = new HashMap<>();
         Configuration clientConf = FLUSS_CLUSTER_EXTENSION.getClientConfig();
         Connection conn = ConnectionFactory.createConnection(clientConf);
-        try (Table table = conn.getTable(TablePath.of(DEFAULT_DB, "sink_test"))) {
+        try (Table table =
+                conn.getTable(TablePath.of(DEFAULT_DB, "append_log_with_round_robin_sink"))) {
             LogScanner logScanner = table.getLogScanner(new LogScan());
 
             logScanner.subscribeFromBeginning(0);
@@ -255,12 +258,12 @@ class FlinkTableSinkITCase {
     @Test
     void testAppendLogWithMultiBatch() throws Exception {
         tEnv.executeSql(
-                "create table sink_test (a int not null, b bigint, c string) with "
+                "create table append_log_with_multi_batch_sink (a int not null, b bigint, c string) with "
                         + "('bucket.num' = '3')");
         int batchSize = 3;
         for (int i = 0; i < batchSize; i++) {
             tEnv.executeSql(
-                            "INSERT INTO sink_test(a, b, c) "
+                            "INSERT INTO append_log_with_multi_batch_sink(a, b, c) "
                                     + "VALUES (1, 3501, 'Tim'), "
                                     + "(2, 3502, 'Fabian'), "
                                     + "(3, 3503, 'coco'), "
@@ -270,7 +273,8 @@ class FlinkTableSinkITCase {
                     .await();
         }
 
-        CloseableIterator<Row> rowIter = tEnv.executeSql("select * from sink_test").collect();
+        CloseableIterator<Row> rowIter =
+                tEnv.executeSql("select * from append_log_with_multi_batch_sink").collect();
         List<String> expectedRows = new ArrayList<>();
         for (int i = 0; i < batchSize; i++) {
             expectedRows.addAll(
@@ -285,9 +289,9 @@ class FlinkTableSinkITCase {
     @Test
     void testPut() throws Exception {
         tEnv.executeSql(
-                "create table sink_test (a int not null primary key not enforced, b bigint, c string) with('bucket.num' = '3')");
+                "create table put_sink_1 (a int not null primary key not enforced, b bigint, c string) with('bucket.num' = '3')");
         tEnv.executeSql(
-                        "INSERT INTO sink_test(a, b, c) "
+                        "INSERT INTO put_sink_1(a, b, c) "
                                 + "VALUES (1, 3501, 'Tim'), "
                                 + "(2, 3502, 'Fabian'), "
                                 + "(3, 3503, 'coco'), "
@@ -296,7 +300,7 @@ class FlinkTableSinkITCase {
                                 + "(6, 3506, 'stave')")
                 .await();
 
-        CloseableIterator<Row> rowIter = tEnv.executeSql("select * from sink_test").collect();
+        CloseableIterator<Row> rowIter = tEnv.executeSql("select * from put_sink_1").collect();
         List<String> expectedRows =
                 Arrays.asList(
                         "+I[1, 3501, Tim]", "+I[2, 3502, Fabian]",
@@ -308,13 +312,16 @@ class FlinkTableSinkITCase {
     @Test
     void testPartialUpsert() throws Exception {
         tEnv.executeSql(
-                "create table sink_test (a int not null primary key not enforced, b bigint, c string) with('bucket.num' = '3')");
+                "create table partial_upsert_sink_1 (a int not null primary key not enforced, b bigint, c string) with('bucket.num' = '3')");
 
         // partial insert
-        tEnv.executeSql("INSERT INTO sink_test(a, b) VALUES (1, 111), (2, 222)").await();
-        tEnv.executeSql("INSERT INTO sink_test(c, a) VALUES ('c1', 1), ('c2', 2)").await();
+        tEnv.executeSql("INSERT INTO partial_upsert_sink_1(a, b) VALUES (1, 111), (2, 222)")
+                .await();
+        tEnv.executeSql("INSERT INTO partial_upsert_sink_1(c, a) VALUES ('c1', 1), ('c2', 2)")
+                .await();
 
-        CloseableIterator<Row> rowIter = tEnv.executeSql("select * from sink_test").collect();
+        CloseableIterator<Row> rowIter =
+                tEnv.executeSql("select * from partial_upsert_sink_1").collect();
 
         List<String> expectedRows =
                 Arrays.asList(
@@ -344,14 +351,16 @@ class FlinkTableSinkITCase {
         tEnv.createTemporaryView("changeLog", changeLogTable);
 
         // check the target fields in row 1 is set to null
-        tEnv.executeSql("INSERT INTO sink_test(a, b) SELECT f0, f1 FROM changeLog").await();
+        tEnv.executeSql("INSERT INTO partial_upsert_sink_1(a, b) SELECT f0, f1 FROM changeLog")
+                .await();
         expectedRows =
                 Arrays.asList(
                         "-U[1, 111, c1]", "+U[1, 333, c1]", "-U[1, 333, c1]", "+U[1, null, c1]");
         assertResultsIgnoreOrder(rowIter, expectedRows, false);
 
         // check the row 1 will be deleted finally since all the fields in the row are set to null
-        tEnv.executeSql("INSERT INTO sink_test(a, c) SELECT f0, f2 FROM changeLog").await();
+        tEnv.executeSql("INSERT INTO partial_upsert_sink_1(a, c) SELECT f0, f2 FROM changeLog")
+                .await();
         expectedRows = Arrays.asList("-U[1, null, c1]", "+U[1, null, c11]", "-D[1, null, c11]");
         assertResultsIgnoreOrder(rowIter, expectedRows, true);
     }
@@ -641,7 +650,7 @@ class FlinkTableSinkITCase {
     @Test
     void testUnsupportedDeleteAndUpdateStmtOnPartialPK() {
         // test primary-key table
-        String t1 = "t1";
+        String t1 = "unsupported_delete_and_update_t1";
         tBatchEnv.executeSql(
                 String.format(
                         "create table %s ("
@@ -676,7 +685,7 @@ class FlinkTableSinkITCase {
                         "Currently, Fluss table only supports UPDATE statement with conditions on primary key.");
 
         // test partitioned primary-key table
-        String t2 = "t2";
+        String t2 = "unsupported_delete_and_update_t2";
         tBatchEnv.executeSql(
                 String.format(
                         "create table %s ("

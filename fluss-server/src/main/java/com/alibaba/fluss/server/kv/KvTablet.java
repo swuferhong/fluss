@@ -424,6 +424,9 @@ public final class KvTablet {
                             kvPreWriteBuffer.flush(exclusiveUpToLogOffset);
                             flushedLogOffset = exclusiveUpToLogOffset;
                         } catch (Throwable t) {
+                            LOG.error(
+                                    "Failed to flush kv pre-write buffer. There maybe a data lost risk.",
+                                    t);
                             fatalErrorHandler.onFatalError(
                                     new KvStorageException("Failed to flush kv pre-write buffer."));
                         }

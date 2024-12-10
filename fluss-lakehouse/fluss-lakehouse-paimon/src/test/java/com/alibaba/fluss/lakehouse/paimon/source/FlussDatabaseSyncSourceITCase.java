@@ -81,14 +81,14 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
     @Test
     void testDatabaseSyc() throws Exception {
         // first, write some records to a table
-        TablePath t1 = TablePath.of(DEFAULT_DB, "sync_pktable");
+        TablePath t1 = TablePath.of(DEFAULT_DB, "database_sync_pktable_t1");
         TableDescriptor table1Descriptor = createPkTableAndWriteRows(t1);
 
         // try to sink to another database
         String sinkDataBase = "fluss_sink";
         createDatabase(sinkDataBase);
         Filter<String> databaseFilter = (databaseName) -> databaseName.equals(DEFAULT_DB);
-        createTable(TablePath.of(sinkDataBase, "sync_pktable"), table1Descriptor);
+        createTable(TablePath.of(sinkDataBase, "database_sync_pktable_t1"), table1Descriptor);
         FlussDatabaseSyncSource syncDatabaseFlussSource =
                 FlussDatabaseSyncSource.newBuilder(FLUSS_CLUSTER_EXTENSION.getClientConfig())
                         .withDatabaseFilter(databaseFilter)
@@ -104,10 +104,12 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
         JobClient jobClient = execEnv.executeAsync();
         // check the records are synced to target database
         verifyRecordsSynced(
-                sinkDataBase, "sync_pktable", Arrays.asList("+I[1, v1]", "+I[2, v2]", "+I[3, v3]"));
+                sinkDataBase,
+                "database_sync_pktable_t1",
+                Arrays.asList("+I[1, v1]", "+I[2, v2]", "+I[3, v3]"));
 
         // now, create another table
-        TablePath t2 = TablePath.of(DEFAULT_DB, "logtable");
+        TablePath t2 = TablePath.of(DEFAULT_DB, "database_sync_logtable_t1");
         TableDescriptor table2Descriptor =
                 TableDescriptor.builder()
                         .schema(
@@ -117,7 +119,7 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
                                         .build())
                         .build();
         // create the table in sink database
-        createTable(TablePath.of(sinkDataBase, "logtable"), table2Descriptor);
+        createTable(TablePath.of(sinkDataBase, "database_sync_logtable_t1"), table2Descriptor);
         // create in source database
         createTable(t2, table2Descriptor);
         List<InternalRow> rows =
@@ -129,15 +131,19 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
         writeRows(t2, rows, true);
         // check the records are synced to target database
         verifyRecordsSynced(
-                sinkDataBase, "logtable", Arrays.asList("+I[11, v1]", "+I[12, v2]", "+I[13, v3]"));
+                sinkDataBase,
+                "database_sync_logtable_t1",
+                Arrays.asList("+I[11, v1]", "+I[12, v2]", "+I[13, v3]"));
 
         // test sync with partitioned tables
         // first create the table in sink database
-        TablePath sinkPartitionedTable = TablePath.of(sinkDataBase, "sync_partitioned_pktable");
+        TablePath sinkPartitionedTable =
+                TablePath.of(sinkDataBase, "database_sync_partitioned_pktable_t1");
         createPartitionedTable(sinkPartitionedTable);
 
         // then create in source database
-        TablePath sourcePartitionedTablePath = TablePath.of(DEFAULT_DB, "sync_partitioned_pktable");
+        TablePath sourcePartitionedTablePath =
+                TablePath.of(DEFAULT_DB, "database_sync_partitioned_pktable_t1");
         Map<Long, String> partitionNameByIds = createPartitionedTable(sourcePartitionedTablePath);
         List<String> expected =
                 writeRowsIntoPartitionedTable(sourcePartitionedTablePath, partitionNameByIds);
@@ -179,7 +185,7 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
     @Test
     void testDatabaseSyncWithFilter() throws Exception {
         // create a table in default db
-        TablePath t1 = TablePath.of(DEFAULT_DB, "pktable");
+        TablePath t1 = TablePath.of(DEFAULT_DB, "database_sync_with_filter_pktable_1");
         TableDescriptor tableDescriptor = createPkTableAndWriteRows(t1);
 
         // then create two tables in another database
@@ -187,11 +193,11 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
         createDatabase(sourceSyncDb);
 
         // create pktable1
-        TablePath t2 = TablePath.of(sourceSyncDb, "pktable1");
+        TablePath t2 = TablePath.of(sourceSyncDb, "database_sync_with_filter_pktable_1");
         createPkTableAndWriteRows(t2);
 
         // create pktable2
-        String tableToSync = "pktable2";
+        String tableToSync = "database_sync_with_filter_pktable_2";
         TablePath t3 = TablePath.of(sourceSyncDb, tableToSync);
         createPkTableAndWriteRows(t3);
 

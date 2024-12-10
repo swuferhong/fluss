@@ -65,7 +65,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Test for {@link FlussAdmin}. */
 class FlussAdminITCase extends ClientToServerITCaseBase {
 
-    protected static final TablePath DEFAULT_TABLE_PATH = TablePath.of("test_db", "person");
     protected static final Schema DEFAULT_SCHEMA =
             Schema.newBuilder()
                     .primaryKey("id")
@@ -80,7 +79,7 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
             TableDescriptor.builder()
                     .schema(DEFAULT_SCHEMA)
                     .comment("test table")
-                    .distributedBy(10, "id")
+                    .distributedBy(3, "id")
                     .property(ConfigOptions.TABLE_LOG_TTL, Duration.ofDays(1))
                     .customProperty("connector", "fluss")
                     .build();
@@ -88,18 +87,19 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
     @BeforeEach
     protected void setup() throws Exception {
         super.setup();
-        // create a default table in fluss.
-        createTable(DEFAULT_TABLE_PATH, DEFAULT_TABLE_DESCRIPTOR, false);
     }
 
     @Test
     void testMultiClient() throws Exception {
+        TablePath tablePath = TablePath.of("test_db", "multi_client_test_t1");
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
         Admin admin1 = conn.getAdmin();
         Admin admin2 = conn.getAdmin();
         assertThat(admin1).isNotSameAs(admin2);
 
-        TableInfo t1 = admin1.getTable(DEFAULT_TABLE_PATH).get();
-        TableInfo t2 = admin2.getTable(DEFAULT_TABLE_PATH).get();
+        TableInfo t1 = admin1.getTable(tablePath).get();
+        TableInfo t2 = admin2.getTable(tablePath).get();
         assertThat(t1).isEqualTo(t2);
 
         admin1.close();
@@ -108,14 +108,17 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
 
     @Test
     void testGetTableAndSchema() throws Exception {
-        SchemaInfo schemaInfo = admin.getTableSchema(DEFAULT_TABLE_PATH).get();
+        TablePath tablePath = TablePath.of("test_db", "test_get_table_and_schema");
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
+        SchemaInfo schemaInfo = admin.getTableSchema(tablePath).get();
         assertThat(schemaInfo.getSchema()).isEqualTo(DEFAULT_SCHEMA);
         assertThat(schemaInfo.getSchemaId()).isEqualTo(1);
-        SchemaInfo schemaInfo2 = admin.getTableSchema(DEFAULT_TABLE_PATH, 1).get();
+        SchemaInfo schemaInfo2 = admin.getTableSchema(tablePath, 1).get();
         assertThat(schemaInfo2).isEqualTo(schemaInfo);
 
         // get default table.
-        TableInfo tableInfo = admin.getTable(DEFAULT_TABLE_PATH).get();
+        TableInfo tableInfo = admin.getTable(tablePath).get();
         assertThat(tableInfo.getSchemaId()).isEqualTo(schemaInfo.getSchemaId());
         assertThat(tableInfo.getTableDescriptor()).isEqualTo(DEFAULT_TABLE_DESCRIPTOR);
 
@@ -157,8 +160,11 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
     }
 
     @Test
-    void testCreateTableWithInvalidProperty() {
-        TablePath tablePath = TablePath.of(DEFAULT_TABLE_PATH.getDatabaseName(), "test_property");
+    void testCreateTableWithInvalidProperty() throws Exception {
+        TablePath tablePath = TablePath.of("test_db", "test_create_table_with_property");
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
+        TablePath tablePath1 = TablePath.of("test_db", "test_property");
         TableDescriptor t1 =
                 TableDescriptor.builder()
                         .schema(DEFAULT_SCHEMA)
@@ -167,7 +173,7 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
                         .property("connector", "fluss")
                         .build();
         // should throw exception
-        assertThatThrownBy(() -> admin.createTable(tablePath, t1, false).get())
+        assertThatThrownBy(() -> admin.createTable(tablePath1, t1, false).get())
                 .cause()
                 .isInstanceOf(InvalidConfigException.class)
                 .hasMessageContaining("'connector' is not a Fluss table property.");
@@ -180,7 +186,7 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
                         .property("table.log.ttl", "unknown")
                         .build();
         // should throw exception
-        assertThatThrownBy(() -> admin.createTable(tablePath, t2, false).get())
+        assertThatThrownBy(() -> admin.createTable(tablePath1, t2, false).get())
                 .cause()
                 .isInstanceOf(InvalidConfigException.class)
                 .hasMessageContaining(
@@ -194,7 +200,7 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
                         .property(ConfigOptions.TABLE_TIERED_LOG_LOCAL_SEGMENTS.key(), "0")
                         .build();
         // should throw exception
-        assertThatThrownBy(() -> admin.createTable(tablePath, t3, false).get())
+        assertThatThrownBy(() -> admin.createTable(tablePath1, t3, false).get())
                 .cause()
                 .isInstanceOf(InvalidConfigException.class)
                 .hasMessage("'table.log.tiered.local-segments' must be greater than 0.");
@@ -202,7 +208,13 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
 
     @Test
     void testCreateTableWithInvalidReplicationFactor() throws Exception {
-        TablePath tablePath = TablePath.of(DEFAULT_TABLE_PATH.getDatabaseName(), "t1");
+        TablePath tablePath =
+                TablePath.of("test_db", "test_create_table_with_invalid_replication_factor_t1");
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
+        TablePath tablePath1 =
+                TablePath.of("test_db", "test_create_table_with_invalid_replication_factor_t2");
+
         // set replica factor to a non positive number, should also throw exception
         TableDescriptor nonPositiveReplicaFactorTable =
                 TableDescriptor.builder()
@@ -214,7 +226,7 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
         // should throw exception
         assertThatThrownBy(
                         () ->
-                                admin.createTable(tablePath, nonPositiveReplicaFactorTable, false)
+                                admin.createTable(tablePath1, nonPositiveReplicaFactorTable, false)
                                         .get())
                 .cause()
                 .isInstanceOf(InvalidReplicationFactorException.class)
@@ -234,7 +246,7 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
                         .customProperty("connector", "fluss")
                         .property(ConfigOptions.TABLE_REPLICATION_FACTOR.key(), "3")
                         .build();
-        assertThatThrownBy(() -> admin.createTable(tablePath, tableDescriptor, false).get())
+        assertThatThrownBy(() -> admin.createTable(tablePath1, tableDescriptor, false).get())
                 .cause()
                 .isInstanceOf(InvalidReplicationFactorException.class)
                 .hasMessageContaining(
@@ -248,18 +260,21 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
         FLUSS_CLUSTER_EXTENSION.waitUtilAllGatewayHasSameMetadata();
 
         // we can create the table now
-        admin.createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false).get();
-        TableInfo tableInfo = admin.getTable(DEFAULT_TABLE_PATH).get();
+        admin.createTable(tablePath1, DEFAULT_TABLE_DESCRIPTOR, false).get();
+        TableInfo tableInfo = admin.getTable(tablePath).get();
         assertThat(tableInfo.getTableDescriptor()).isEqualTo(DEFAULT_TABLE_DESCRIPTOR);
     }
 
     @Test
     void testCreateExistedTable() throws Exception {
-        assertThatThrownBy(() -> createTable(DEFAULT_TABLE_PATH, DEFAULT_TABLE_DESCRIPTOR, false))
+        TablePath tablePath = TablePath.of("test_db", "test_create_table_existed_t1");
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
+        assertThatThrownBy(() -> createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false))
                 .cause()
                 .isInstanceOf(DatabaseAlreadyExistException.class);
         // no exception
-        createTable(DEFAULT_TABLE_PATH, DEFAULT_TABLE_DESCRIPTOR, true);
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, true);
 
         // database not exists, throw exception
         assertThatThrownBy(
@@ -275,6 +290,9 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
 
     @Test
     void testDropDatabaseAndTable() throws Exception {
+        TablePath tablePath = TablePath.of("test_db", "test_drop_database_and_table_t1");
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
         // drop not existed database with ignoreIfNotExists false.
         assertThatThrownBy(() -> admin.deleteDatabase("unknown_db", false, true).get())
                 .cause()
@@ -294,7 +312,7 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
         assertThat(admin.databaseExists("test_db").get()).isFalse();
 
         // re-create.
-        createTable(DEFAULT_TABLE_PATH, DEFAULT_TABLE_DESCRIPTOR, false);
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
 
         // drop not existed table with ignoreIfNotExists false.
         assertThatThrownBy(
@@ -308,22 +326,35 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
         admin.deleteTable(TablePath.of("test_db", "unknown_table"), true).get();
 
         // drop existed table.
-        assertThat(admin.tableExists(DEFAULT_TABLE_PATH).get()).isTrue();
-        admin.deleteTable(DEFAULT_TABLE_PATH, true).get();
-        assertThat(admin.tableExists(DEFAULT_TABLE_PATH).get()).isFalse();
+        assertThat(admin.tableExists(tablePath).get()).isTrue();
+        admin.deleteTable(tablePath, true).get();
+        assertThat(admin.tableExists(tablePath).get()).isFalse();
     }
 
     @Test
     void testListDatabasesAndTables() throws Exception {
+        TablePath tablePath = TablePath.of("test_db", "test_drop_database_and_table");
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
         admin.createDatabase("db1", true).get();
         admin.createDatabase("db2", true).get();
         admin.createDatabase("db3", true).get();
         assertThat(admin.listDatabases().get())
                 .containsExactlyInAnyOrder("test_db", "db1", "db2", "db3", "fluss");
 
-        admin.createTable(TablePath.of("db1", "table1"), DEFAULT_TABLE_DESCRIPTOR, true).get();
-        admin.createTable(TablePath.of("db1", "table2"), DEFAULT_TABLE_DESCRIPTOR, true).get();
-        assertThat(admin.listTables("db1").get()).containsExactlyInAnyOrder("table1", "table2");
+        admin.createTable(
+                        TablePath.of("db1", "list_database_and_table_t1"),
+                        DEFAULT_TABLE_DESCRIPTOR,
+                        true)
+                .get();
+        admin.createTable(
+                        TablePath.of("db1", "list_database_and_table_t2"),
+                        DEFAULT_TABLE_DESCRIPTOR,
+                        true)
+                .get();
+        assertThat(admin.listTables("db1").get())
+                .containsExactlyInAnyOrder(
+                        "list_database_and_table_t1", "list_database_and_table_t2");
         assertThat(admin.listTables("db2").get()).isEmpty();
 
         assertThatThrownBy(() -> admin.listTables("unknown_db").get())
@@ -333,8 +364,10 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
 
     @Test
     void testListPartitionInfos() throws Exception {
-        String dbName = DEFAULT_TABLE_PATH.getDatabaseName();
+        String dbName = "test_db";
         TablePath nonPartitionedTablePath = TablePath.of(dbName, "test_non_partitioned_table");
+        createTable(nonPartitionedTablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
         admin.createTable(nonPartitionedTablePath, DEFAULT_TABLE_DESCRIPTOR, true).get();
         assertThatThrownBy(() -> admin.listPartitionInfos(nonPartitionedTablePath).get())
                 .cause()
@@ -350,7 +383,7 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
                                         .column("pt", DataTypes.STRING())
                                         .build())
                         .comment("test table")
-                        .distributedBy(10, "id")
+                        .distributedBy(3, "id")
                         .partitionedBy("pt")
                         .property(ConfigOptions.TABLE_AUTO_PARTITION_ENABLED, true)
                         .property(
@@ -372,8 +405,11 @@ class FlussAdminITCase extends ClientToServerITCaseBase {
 
     @Test
     void testGetKvSnapshot() throws Exception {
-        TablePath tablePath1 =
-                TablePath.of(DEFAULT_TABLE_PATH.getDatabaseName(), "test-table-snapshot");
+        TablePath tablePath = TablePath.of("test_db", "test-table-snapshot_t1");
+        createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, false);
+
+        TablePath tablePath1 = TablePath.of("test_db", "test-table-snapshot_t2");
+
         int bucketNum = 3;
         TableDescriptor tableDescriptor =
                 TableDescriptor.builder()

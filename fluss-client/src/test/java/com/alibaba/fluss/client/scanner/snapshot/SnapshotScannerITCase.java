@@ -90,7 +90,6 @@ class SnapshotScannerITCase extends ClientToServerITCaseBase {
             remoteFileDownloader.close();
             remoteFileDownloader = null;
         }
-        super.teardown();
     }
 
     @Test

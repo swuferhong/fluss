@@ -82,14 +82,15 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
 
     @Test
     void testPkTableNoSnapshotSplits() throws Throwable {
-        long tableId = createTable(DEFAULT_TABLE_PATH, DEFAULT_PK_TABLE_DESCRIPTOR);
+        TablePath tablePath = TablePath.of(DEFAULT_DB, "pk_table_no_snapshot_splits_t1");
+        long tableId = createTable(tablePath, DEFAULT_PK_TABLE_DESCRIPTOR);
         int numSubtasks = 3;
         // test get snapshot split & log split and the assignment
         try (MockSplitEnumeratorContext<SourceSplitBase> context =
                 new MockSplitEnumeratorContext<>(numSubtasks)) {
             FlinkSourceEnumerator enumerator =
                     new FlinkSourceEnumerator(
-                            DEFAULT_TABLE_PATH,
+                            tablePath,
                             flussConf,
                             true,
                             false,
@@ -124,18 +125,19 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
 
     @Test
     void testPkTableWithSnapshotSplits() throws Throwable {
-        long tableId = createTable(DEFAULT_TABLE_PATH, DEFAULT_PK_TABLE_DESCRIPTOR);
+        TablePath tablePath = TablePath.of(DEFAULT_DB, "pk_table_with_snapshot_splits_t1");
+        long tableId = createTable(tablePath, DEFAULT_PK_TABLE_DESCRIPTOR);
         int numSubtasks = 5;
         // write data and wait snapshot finish to make sure
         // we can hava snapshot split
-        Map<Integer, Integer> bucketIdToNumRecords = putRows(DEFAULT_TABLE_PATH, 10);
+        Map<Integer, Integer> bucketIdToNumRecords = putRows(tablePath, 10);
         waitUntilSnapshot(tableId, 0);
 
         try (MockSplitEnumeratorContext<SourceSplitBase> context =
                 new MockSplitEnumeratorContext<>(numSubtasks)) {
             FlinkSourceEnumerator enumerator =
                     new FlinkSourceEnumerator(
-                            DEFAULT_TABLE_PATH,
+                            tablePath,
                             flussConf,
                             true,
                             false,
@@ -205,7 +207,7 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
                         .distributedBy(DEFAULT_BUCKET_NUM, "id")
                         .build();
 
-        TablePath path1 = TablePath.of(DEFAULT_DB, "test-non-pk-table");
+        TablePath path1 = TablePath.of(DEFAULT_DB, "test-non-pk-table_t1");
         admin.createTable(path1, nonPkTableDescriptor, true).get();
         long tableId = admin.getTable(path1).get().getTableId();
 
@@ -252,14 +254,16 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
 
     @Test
     void testReaderRegistrationTriggerAssignments() throws Throwable {
-        long tableId = createTable(DEFAULT_TABLE_PATH, DEFAULT_PK_TABLE_DESCRIPTOR);
+        TablePath tablePath =
+                TablePath.of(DEFAULT_DB, "test_reader_registration_trigger_assignments_t1");
+        long tableId = createTable(tablePath, DEFAULT_PK_TABLE_DESCRIPTOR);
         int numSubtasks = 3;
         // test get snapshot split & log split and the assignment
         try (MockSplitEnumeratorContext<SourceSplitBase> context =
                 new MockSplitEnumeratorContext<>(numSubtasks)) {
             FlinkSourceEnumerator enumerator =
                     new FlinkSourceEnumerator(
-                            DEFAULT_TABLE_PATH,
+                            tablePath,
                             flussConf,
                             true,
                             false,
@@ -287,14 +291,15 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
 
     @Test
     void testAddSplitBack() throws Throwable {
-        long tableId = createTable(DEFAULT_TABLE_PATH, DEFAULT_PK_TABLE_DESCRIPTOR);
+        TablePath tablePath = TablePath.of(DEFAULT_DB, "test_add_split_back_t1");
+        long tableId = createTable(tablePath, DEFAULT_PK_TABLE_DESCRIPTOR);
         int numSubtasks = 3;
         // test get snapshot split & log split and the assignment
         try (MockSplitEnumeratorContext<SourceSplitBase> context =
                 new MockSplitEnumeratorContext<>(numSubtasks)) {
             FlinkSourceEnumerator enumerator =
                     new FlinkSourceEnumerator(
-                            DEFAULT_TABLE_PATH,
+                            tablePath,
                             flussConf,
                             true,
                             false,
@@ -337,7 +342,8 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
 
     @Test
     void testRestore() throws Throwable {
-        long tableId = createTable(DEFAULT_TABLE_PATH, DEFAULT_PK_TABLE_DESCRIPTOR);
+        TablePath tablePath = TablePath.of(DEFAULT_DB, "test_restore_t1");
+        long tableId = createTable(tablePath, DEFAULT_PK_TABLE_DESCRIPTOR);
         int numSubtasks = 3;
         // test get snapshot split & log split and the assignment
         try (MockSplitEnumeratorContext<SourceSplitBase> context =
@@ -350,7 +356,7 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
             // mock restore with assigned buckets
             FlinkSourceEnumerator enumerator =
                     new FlinkSourceEnumerator(
-                            DEFAULT_TABLE_PATH,
+                            tablePath,
                             flussConf,
                             false,
                             false,
@@ -388,13 +394,17 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
                 isPrimaryKeyTable
                         ? DEFAULT_AUTO_PARTITIONED_PK_TABLE_DESCRIPTOR
                         : DEFAULT_AUTO_PARTITIONED_LOG_TABLE_DESCRIPTOR;
-        long tableId = createTable(DEFAULT_TABLE_PATH, tableDescriptor);
+        TablePath tablePath =
+                TablePath.of(
+                        DEFAULT_DB,
+                        "test_discover_partitions_periodically_t1_" + isPrimaryKeyTable);
+        long tableId = createTable(tablePath, tableDescriptor);
         ZooKeeperClient zooKeeperClient = FLUSS_CLUSTER_EXTENSION.getZooKeeperClient();
         try (MockSplitEnumeratorContext<SourceSplitBase> context =
                         new MockSplitEnumeratorContext<>(numSubtasks);
                 FlinkSourceEnumerator enumerator =
                         new FlinkSourceEnumerator(
-                                DEFAULT_TABLE_PATH,
+                                tablePath,
                                 flussConf,
                                 isPrimaryKeyTable,
                                 true,
@@ -402,8 +412,7 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
                                 OffsetsInitializer.initial(),
                                 DEFAULT_SCAN_PARTITION_DISCOVERY_INTERVAL_MS,
                                 streaming)) {
-            Map<Long, String> partitionNameByIds =
-                    waitUntilPartitions(zooKeeperClient, DEFAULT_TABLE_PATH);
+            Map<Long, String> partitionNameByIds = waitUntilPartitions(zooKeeperClient, tablePath);
             enumerator.start();
             // register all readers
             for (int i = 0; i < numSubtasks; i++) {
@@ -425,7 +434,7 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
             List<String> newPartitions = Arrays.asList("newPartition1", "newPartition2");
 
             Map<Long, String> newPartitionNameIds =
-                    createPartitions(zooKeeperClient, DEFAULT_TABLE_PATH, newPartitions);
+                    createPartitions(zooKeeperClient, tablePath, newPartitions);
 
             /// invoke partition discovery callable again and there should assignments.
             runPeriodicPartitionDiscovery(context);
@@ -439,9 +448,8 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
             Map<Long, String> expectedRemovedPartitions = newPartitionNameIds;
             newPartitions = Collections.singletonList("newPartition3");
 
-            dropPartitions(zooKeeperClient, DEFAULT_TABLE_PATH, dropPartitions);
-            newPartitionNameIds =
-                    createPartitions(zooKeeperClient, DEFAULT_TABLE_PATH, newPartitions);
+            dropPartitions(zooKeeperClient, tablePath, dropPartitions);
+            newPartitionNameIds = createPartitions(zooKeeperClient, tablePath, newPartitions);
 
             // invoke partition discovery callable again
             runPeriodicPartitionDiscovery(context);
@@ -496,13 +504,14 @@ class FlinkSourceEnumeratorTest extends FlinkTestBase {
 
     @Test
     void testGetSplitOwner() throws Exception {
+        TablePath tablePath = TablePath.of(DEFAULT_DB, "test_get_split_owner_t1");
         int numSubtasks = 3;
-        long tableId = createTable(DEFAULT_TABLE_PATH, DEFAULT_PK_TABLE_DESCRIPTOR);
+        long tableId = createTable(tablePath, DEFAULT_PK_TABLE_DESCRIPTOR);
         try (MockSplitEnumeratorContext<SourceSplitBase> context =
                         new MockSplitEnumeratorContext<>(numSubtasks);
                 FlinkSourceEnumerator enumerator =
                         new FlinkSourceEnumerator(
-                                DEFAULT_TABLE_PATH,
+                                tablePath,
                                 flussConf,
                                 false,
                                 true,

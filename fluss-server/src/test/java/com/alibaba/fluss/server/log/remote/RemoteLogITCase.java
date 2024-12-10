@@ -23,6 +23,7 @@ import com.alibaba.fluss.fs.FileSystem;
 import com.alibaba.fluss.fs.FsPath;
 import com.alibaba.fluss.metadata.PhysicalTablePath;
 import com.alibaba.fluss.metadata.TableBucket;
+import com.alibaba.fluss.metadata.TablePath;
 import com.alibaba.fluss.rpc.gateway.CoordinatorGateway;
 import com.alibaba.fluss.rpc.gateway.TabletServerGateway;
 import com.alibaba.fluss.server.tablet.TabletServer;
@@ -37,7 +38,6 @@ import java.util.Objects;
 
 import static com.alibaba.fluss.record.TestData.DATA1;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
 import static com.alibaba.fluss.server.testutils.RpcMessageTestUtils.assertProduceLogResponse;
 import static com.alibaba.fluss.server.testutils.RpcMessageTestUtils.createTable;
 import static com.alibaba.fluss.server.testutils.RpcMessageTestUtils.newDropTableRequest;
@@ -57,11 +57,10 @@ public class RemoteLogITCase {
 
     @Test
     void testDeleteRemoteLog() throws Exception {
+        TablePath tablePath = new TablePath("test_db_1", "test_delete_remote_log_t1");
         long tableId =
                 createTable(
-                        FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
-                        DATA1_TABLE_INFO.getTableDescriptor());
+                        FLUSS_CLUSTER_EXTENSION, tablePath, DATA1_TABLE_INFO.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
         FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
@@ -89,7 +88,7 @@ public class RemoteLogITCase {
         FsPath fsPath =
                 FlussPaths.remoteLogTabletDir(
                         tabletServer.getReplicaManager().getRemoteLogManager().remoteLogDir(),
-                        PhysicalTablePath.of(DATA1_TABLE_PATH),
+                        PhysicalTablePath.of(tablePath),
                         tb);
         FileSystem fileSystem = fsPath.getFileSystem();
         assertThat(fileSystem.exists(fsPath)).isTrue();
@@ -99,20 +98,18 @@ public class RemoteLogITCase {
         coordinatorGateway
                 .dropTable(
                         newDropTableRequest(
-                                DATA1_TABLE_PATH.getDatabaseName(),
-                                DATA1_TABLE_PATH.getTableName(),
-                                true))
+                                tablePath.getDatabaseName(), tablePath.getTableName(), true))
                 .get();
         retry(Duration.ofMinutes(2), () -> assertThat(fileSystem.exists(fsPath)).isFalse());
     }
 
     @Test
     void testFollowerFetchAlreadyMoveToRemoteLog() throws Exception {
+        TablePath tablePath =
+                new TablePath("test_db_1", "test_follower_fetch_already_move_to_remote_log_t1");
         long tableId =
                 createTable(
-                        FLUSS_CLUSTER_EXTENSION,
-                        DATA1_TABLE_PATH,
-                        DATA1_TABLE_INFO.getTableDescriptor());
+                        FLUSS_CLUSTER_EXTENSION, tablePath, DATA1_TABLE_INFO.getTableDescriptor());
         TableBucket tb = new TableBucket(tableId, 0);
 
         FLUSS_CLUSTER_EXTENSION.waitUtilAllReplicaReady(tb);
