@@ -374,13 +374,16 @@ public final class FlussClusterExtension
                                 toServerNode(
                                         response.getCoordinatorServer(), ServerType.COORDINATOR);
                         assertThat(coordinatorNode).isEqualTo(getCoordinatorServerNode());
+                        LOG.info("Coordinator node: {}", coordinatorNode);
                         // check tablet server nodes
                         List<ServerNode> tsNodes =
                                 response.getTabletServersList().stream()
                                         .map(n -> toServerNode(n, ServerType.TABLET_SERVER))
                                         .collect(Collectors.toList());
+                        LOG.info("Tablet server nodes: {}", tsNodes);
                         assertThat(tsNodes)
                                 .containsExactlyInAnyOrderElementsOf(getTabletServerNodes());
+                        LOG.info("Finished once");
                     });
         }
     }
