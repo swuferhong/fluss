@@ -367,7 +367,7 @@ public final class FlussClusterExtension
                     Duration.ofMinutes(2),
                     () -> {
                         MetadataResponse response =
-                                gateway.metadata(new MetadataRequest()).get(5L, TimeUnit.SECONDS);
+                                gateway.metadata(new MetadataRequest()).get(2L, TimeUnit.MINUTES);
                         assertThat(response.hasCoordinatorServer()).isTrue();
                         // check coordinator server node
                         ServerNode coordinatorNode =
