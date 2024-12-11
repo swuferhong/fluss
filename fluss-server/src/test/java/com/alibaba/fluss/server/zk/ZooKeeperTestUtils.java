@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /** ZooKeeper test utilities. */
 public class ZooKeeperTestUtils {
@@ -45,6 +46,7 @@ public class ZooKeeperTestUtils {
             String connectString, FatalErrorHandler fatalErrorHandler) {
         final Configuration config = new Configuration();
         config.setString(ConfigOptions.ZOOKEEPER_ADDRESS, connectString);
+        config.setString(ConfigOptions.ZOOKEEPER_ROOT, UUID.randomUUID().toString());
 
         return ZooKeeperUtils.startZookeeperClient(config, fatalErrorHandler);
     }
