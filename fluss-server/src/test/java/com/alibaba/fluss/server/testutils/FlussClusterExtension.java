@@ -49,7 +49,6 @@ import com.alibaba.fluss.server.zk.data.RemoteLogManifestHandle;
 import com.alibaba.fluss.server.zk.data.TableAssignment;
 import com.alibaba.fluss.utils.FileUtils;
 import com.alibaba.fluss.utils.NetUtils;
-
 import org.apache.curator.test.TestingServer;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.AfterEachCallback;
@@ -111,6 +110,7 @@ public final class FlussClusterExtension
     private final Map<Integer, TabletServer> tabletServers;
     private final List<ServerNode> tabletServerNodes;
     private final Configuration clusterConf;
+    private final String zkRootPath;
 
     /** Creates a new {@link Builder} for {@link FlussClusterExtension}. */
     public static Builder builder() {
@@ -122,6 +122,7 @@ public final class FlussClusterExtension
         this.tabletServers = new HashMap<>(numOfTabletServers);
         this.tabletServerNodes = new ArrayList<>();
         this.clusterConf = clusterConf;
+        this.zkRootPath = "/" + UUID.randomUUID();
     }
 
     @Override
@@ -169,9 +170,7 @@ public final class FlussClusterExtension
         zooKeeperServer = ZooKeeperTestUtils.createAndStartZookeeperTestingServer();
         zooKeeperClient =
                 createZooKeeperClient(
-                        zooKeeperServer.getConnectString(),
-                        UUID.randomUUID().toString(),
-                        NOPErrorHandler.INSTANCE);
+                        zooKeeperServer.getConnectString(), zkRootPath, NOPErrorHandler.INSTANCE);
         metaDataManager = new MetaDataManager(zooKeeperClient);
         Configuration conf = new Configuration();
         rpcClient =
@@ -221,6 +220,7 @@ public final class FlussClusterExtension
             try (NetUtils.Port availablePort = getAvailablePort()) {
                 Configuration conf = new Configuration(clusterConf);
                 conf.setString(ConfigOptions.ZOOKEEPER_ADDRESS, zooKeeperServer.getConnectString());
+                conf.set(ConfigOptions.ZOOKEEPER_ROOT, zkRootPath);
                 conf.setString(ConfigOptions.COORDINATOR_HOST, HOST_ADDRESS);
                 conf.setString(
                         ConfigOptions.COORDINATOR_PORT, String.valueOf(availablePort.getPort()));
@@ -267,6 +267,7 @@ public final class FlussClusterExtension
             tabletServerConf.set(ConfigOptions.DATA_DIR, dataDir);
             tabletServerConf.setString(
                     ConfigOptions.ZOOKEEPER_ADDRESS, zooKeeperServer.getConnectString());
+            tabletServerConf.set(ConfigOptions.ZOOKEEPER_ROOT, zkRootPath);
 
             setRemoteDataDir(tabletServerConf);
 
