@@ -72,6 +72,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -167,7 +168,10 @@ public final class FlussClusterExtension
         tempDir = Files.createTempDirectory("fluss-testing-cluster").toFile();
         zooKeeperServer = ZooKeeperTestUtils.createAndStartZookeeperTestingServer();
         zooKeeperClient =
-                createZooKeeperClient(zooKeeperServer.getConnectString(), NOPErrorHandler.INSTANCE);
+                createZooKeeperClient(
+                        zooKeeperServer.getConnectString(),
+                        UUID.randomUUID().toString(),
+                        NOPErrorHandler.INSTANCE);
         metaDataManager = new MetaDataManager(zooKeeperClient);
         Configuration conf = new Configuration();
         rpcClient =
@@ -374,16 +378,13 @@ public final class FlussClusterExtension
                                 toServerNode(
                                         response.getCoordinatorServer(), ServerType.COORDINATOR);
                         assertThat(coordinatorNode).isEqualTo(getCoordinatorServerNode());
-                        LOG.info("Coordinator node: {}", coordinatorNode);
                         // check tablet server nodes
                         List<ServerNode> tsNodes =
                                 response.getTabletServersList().stream()
                                         .map(n -> toServerNode(n, ServerType.TABLET_SERVER))
                                         .collect(Collectors.toList());
-                        LOG.info("Tablet server nodes: {}", tsNodes);
                         assertThat(tsNodes)
                                 .containsExactlyInAnyOrderElementsOf(getTabletServerNodes());
-                        LOG.info("Finished once");
                     });
         }
     }
