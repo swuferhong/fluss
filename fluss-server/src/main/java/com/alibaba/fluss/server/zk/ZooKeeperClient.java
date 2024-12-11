@@ -654,7 +654,13 @@ public class ZooKeeperClient implements AutoCloseable {
     /** Deletes a zk path. */
     @VisibleForTesting
     public void deletePath(String path) {
-        uncheck(() -> zkClient.delete().guaranteed().forPath(path), "Fail to delete path: " + path);
+        uncheck(
+                () -> {
+                    if (zkClient.checkExists().forPath(path) != null) {
+                        zkClient.delete().guaranteed().forPath(path);
+                    }
+                },
+                "Fail to delete path: " + path);
     }
 
     /**
