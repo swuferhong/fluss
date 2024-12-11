@@ -33,6 +33,7 @@ import com.alibaba.fluss.rpc.messages.MetadataRequest;
 import com.alibaba.fluss.rpc.messages.MetadataResponse;
 import com.alibaba.fluss.rpc.metrics.ClientMetricGroup;
 import com.alibaba.fluss.server.coordinator.CoordinatorServer;
+import com.alibaba.fluss.server.coordinator.MetaDataManager;
 import com.alibaba.fluss.server.kv.snapshot.CompletedSnapshot;
 import com.alibaba.fluss.server.kv.snapshot.CompletedSnapshotHandle;
 import com.alibaba.fluss.server.replica.Replica;
@@ -46,6 +47,7 @@ import com.alibaba.fluss.server.zk.data.LeaderAndIsr;
 import com.alibaba.fluss.server.zk.data.PartitionAssignment;
 import com.alibaba.fluss.server.zk.data.RemoteLogManifestHandle;
 import com.alibaba.fluss.server.zk.data.TableAssignment;
+import com.alibaba.fluss.utils.FileUtils;
 import com.alibaba.fluss.utils.NetUtils;
 
 import org.apache.curator.test.TestingServer;
@@ -60,6 +62,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -101,6 +104,7 @@ public final class FlussClusterExtension
     private TestingServer zooKeeperServer;
     private ZooKeeperClient zooKeeperClient;
     private RpcClient rpcClient;
+    private MetaDataManager metaDataManager;
 
     private File tempDir;
 
@@ -139,8 +143,26 @@ public final class FlussClusterExtension
 
     @Override
     public void afterEach(ExtensionContext extensionContext) {
-        if (zooKeeperClient != null) {
-            zooKeeperClient.deletePath(zkRootPath);
+        String defaultDb = BUILTIN_DATABASE;
+        // TODO: we need to cleanup all zk nodes, including the assignments,
+        //  but currently, we don't have a good way to do it
+        if (metaDataManager != null) {
+            // drop all database and tables
+            List<String> databases = metaDataManager.listDatabases();
+            for (String database : databases) {
+                if (!database.equals(defaultDb)) {
+                    metaDataManager.dropDatabase(database, true, true);
+                    // delete the data dirs
+                    for (int serverId : tabletServers.keySet()) {
+                        String dataDir = getDataDir(serverId);
+                        FileUtils.deleteDirectoryQuietly(Paths.get(dataDir, database).toFile());
+                    }
+                }
+            }
+            List<String> tables = metaDataManager.listTables(defaultDb);
+            for (String table : tables) {
+                metaDataManager.dropTable(TablePath.of(defaultDb, table), true);
+            }
         }
     }
 
@@ -150,6 +172,7 @@ public final class FlussClusterExtension
         zooKeeperClient =
                 createZooKeeperClient(
                         zooKeeperServer.getConnectString(), zkRootPath, NOPErrorHandler.INSTANCE);
+        metaDataManager = new MetaDataManager(zooKeeperClient);
         Configuration conf = new Configuration();
         rpcClient =
                 RpcClient.create(
@@ -181,7 +204,9 @@ public final class FlussClusterExtension
             coordinatorServer.close();
             coordinatorServer = null;
         }
+
         if (zooKeeperClient != null) {
+            zooKeeperClient.deletePath(zkRootPath);
             zooKeeperClient.close();
             zooKeeperClient = null;
         }
