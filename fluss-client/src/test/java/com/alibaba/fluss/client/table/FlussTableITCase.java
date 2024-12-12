@@ -66,7 +66,6 @@ import static com.alibaba.fluss.record.TestData.DATA1_SCHEMA_PK;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_DESCRIPTOR;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO;
 import static com.alibaba.fluss.record.TestData.DATA1_TABLE_INFO_PK;
-import static com.alibaba.fluss.record.TestData.DATA1_TABLE_PATH;
 import static com.alibaba.fluss.testutils.DataTestUtils.assertRowValueEquals;
 import static com.alibaba.fluss.testutils.DataTestUtils.compactedRow;
 import static com.alibaba.fluss.testutils.DataTestUtils.keyRow;
@@ -113,7 +112,12 @@ class FlussTableITCase extends ClientToServerITCaseBase {
                                 .logFormat(LogFormat.INDEXED)
                                 .build()
                         : DATA1_TABLE_DESCRIPTOR;
-        createTable(DATA1_TABLE_PATH, desc, false);
+        TablePath tablePath =
+                TablePath.of(
+                        "test_db_small_buffer",
+                        "test_append_with_small_buffer_table_"
+                                + (indexedFormat ? "indexed" : "arrow"));
+        createTable(tablePath, desc, false);
         Configuration config = new Configuration(clientConf);
         // only 1kb memory size, and 64 bytes page size.
         config.set(ConfigOptions.CLIENT_WRITER_BUFFER_MEMORY_SIZE, new MemorySize(2048));
@@ -121,7 +125,7 @@ class FlussTableITCase extends ClientToServerITCaseBase {
         config.set(ConfigOptions.CLIENT_WRITER_BATCH_SIZE, new MemorySize(256));
         int expectedSize = 20;
         try (Connection conn = ConnectionFactory.createConnection(config)) {
-            Table table = conn.getTable(DATA1_TABLE_PATH);
+            Table table = conn.getTable(tablePath);
             AppendWriter appendWriter = table.getAppendWriter();
             BinaryString value = BinaryString.fromString(StringUtils.repeat("a", 100));
             // should exceed the buffer size, but append successfully

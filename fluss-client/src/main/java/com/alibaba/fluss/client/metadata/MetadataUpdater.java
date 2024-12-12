@@ -228,14 +228,11 @@ public class MetadataUpdater {
             @Nullable Collection<PhysicalTablePath> tablePartitionNames,
             @Nullable Collection<Long> tablePartitionIds) {
         try {
+            Cluster newCluster =
+                    sendMetadataRequestAndRebuildCluster(
+                            cluster, rpcClient, tablePaths, tablePartitionNames, tablePartitionIds);
             synchronized (this) {
-                cluster =
-                        sendMetadataRequestAndRebuildCluster(
-                                cluster,
-                                rpcClient,
-                                tablePaths,
-                                tablePartitionNames,
-                                tablePartitionIds);
+                cluster = newCluster;
             }
         } catch (Exception e) {
             Throwable t = ExceptionUtils.stripExecutionException(e);
