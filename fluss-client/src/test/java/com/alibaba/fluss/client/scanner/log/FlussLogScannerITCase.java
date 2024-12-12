@@ -98,7 +98,7 @@ public class FlussLogScannerITCase extends ClientToServerITCaseBase {
         TablePath tablePath =
                 new TablePath("test_db_1", "test_poll_while_create_table_not_ready_t1");
         // create one table with 100 buckets.
-        int bucketNumber = 100;
+        int bucketNumber = 20;
         TableDescriptor tableDescriptor =
                 TableDescriptor.builder().schema(DATA1_SCHEMA).distributedBy(bucketNumber).build();
         createTable(tablePath, tableDescriptor, false);

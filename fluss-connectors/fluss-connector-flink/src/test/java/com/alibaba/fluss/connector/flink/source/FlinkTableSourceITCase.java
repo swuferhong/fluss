@@ -131,7 +131,8 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                         compactedRow(DATA1_ROW_TYPE, new Object[] {3, "v3"}));
 
         // write records
-        writeRows(tablePath, rows, false);
+        Table table = conn.getTable(tablePath);
+        writeRows(table, rows, false);
 
         waitUtilAllBucketFinishSnapshot(admin, tablePath);
 
@@ -154,7 +155,8 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                         compactedRow(DATA1_ROW_TYPE, new Object[] {3, "v3"}));
 
         // write records
-        writeRows(tablePath, rows, false);
+        Table table = conn.getTable(tablePath);
+        writeRows(table, rows, false);
 
         waitUtilAllBucketFinishSnapshot(admin, tablePath);
 
@@ -176,7 +178,8 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                         row(DATA1_ROW_TYPE, new Object[] {3, "v3"}));
 
         // write records
-        writeRows(tablePath, rows, true);
+        Table table = conn.getTable(tablePath);
+        writeRows(table, rows, true);
 
         List<String> expected = Arrays.asList("+I[1, v1]", "+I[2, v2]", "+I[3, v3]");
         try (org.apache.flink.util.CloseableIterator<Row> rowIter =
@@ -223,11 +226,11 @@ class FlinkTableSourceITCase extends FlinkTestBase {
             if (!testPkLog) {
                 // write records and wait snapshot before collect job start,
                 // to make sure reading from kv snapshot
-                writeRows(tablePath, rows, false);
+                writeRows(table, rows, false);
                 waitUtilAllBucketFinishSnapshot(admin, TablePath.of(DEFAULT_DB, tableName));
             }
         } else {
-            writeRows(tablePath, rows, true);
+            writeRows(table, rows, true);
         }
 
         String query = "select b, a, c from " + tableName;
@@ -257,7 +260,7 @@ class FlinkTableSourceITCase extends FlinkTestBase {
             if (testPkLog) {
                 // delay the write after collect job start,
                 // to make sure reading from log instead of snapshot
-                writeRows(tablePath, rows, false);
+                writeRows(table, rows, false);
             }
             for (int i = 0; i < expectRecords; i++) {
                 Row r = rowIter.next();
@@ -281,7 +284,8 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                         compactedRow(DATA1_ROW_TYPE, new Object[] {3, "v3"}));
 
         // write records
-        writeRows(tablePath, rows, false);
+        Table table = conn.getTable(tablePath);
+        writeRows(table, rows, false);
 
         waitUtilAllBucketFinishSnapshot(admin, tablePath);
 
@@ -300,7 +304,7 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                         "+U[2, v2]",
                         "-U[3, v3]",
                         "+U[3, v3]");
-        writeRows(tablePath, rows, false);
+        writeRows(table, rows, false);
         assertResultsIgnoreOrder(rowIter, expectedRows, true);
     }
 
@@ -352,7 +356,7 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                                 dataType,
                                 rowValues(new Object[] {5, "v5", 500L, 5000}, partitionName)));
 
-        writeRows(tablePath, rows1, true);
+        writeRows(table, rows1, true);
 
         List<InternalRow> rows2 =
                 Arrays.asList(
@@ -364,7 +368,7 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                                 dataType,
                                 rowValues(new Object[] {10, "v10", 1000L, 10000}, partitionName)));
         // for second batch, we don't wait snapshot finish.
-        writeRows(tablePath, rows2, true);
+        writeRows(table, rows2, true);
 
         // 1. read log table with scan.startup.mode='initial'
         String options = " /*+ OPTIONS('scan.startup.mode' = 'initial') */";
@@ -411,7 +415,8 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                         compactedRow(DATA1_ROW_TYPE, new Object[] {3, "v33"}));
 
         // write records and wait generate snapshot.
-        writeRows(tablePath, rows1, false);
+        Table table = conn.getTable(tablePath);
+        writeRows(table, rows1, false);
         waitUtilAllBucketFinishSnapshot(admin, tablePath);
 
         List<InternalRow> rows2 =
@@ -438,7 +443,7 @@ class FlinkTableSourceITCase extends FlinkTestBase {
             List<String> actual = new ArrayList<>(expectRecords);
             // delay to write after collect job start, to make sure reading from log instead of
             // snapshot
-            writeRows(tablePath, rows2, false);
+            writeRows(table, rows2, false);
             for (int i = 0; i < expectRecords; i++) {
                 Row r = rowIter.next();
                 String row = r.toString();
@@ -483,7 +488,8 @@ class FlinkTableSourceITCase extends FlinkTestBase {
             partitionName = partitionNameById.values().iterator().next();
         }
 
-        RowType dataType = conn.getTable(tablePath).getDescriptor().getSchema().toRowType();
+        Table table = conn.getTable(tablePath);
+        RowType dataType = table.getDescriptor().getSchema().toRowType();
 
         List<InternalRow> rows1 =
                 Arrays.asList(
@@ -493,7 +499,7 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                         compactedRow(dataType, rowValues(new Object[] {3, "v33"}, partitionName)));
 
         // write records and wait generate snapshot.
-        writeRows(tablePath, rows1, false);
+        writeRows(table, rows1, false);
         if (partitionName == null) {
             waitUtilAllBucketFinishSnapshot(admin, tablePath);
         } else {
@@ -505,7 +511,7 @@ class FlinkTableSourceITCase extends FlinkTestBase {
                         compactedRow(dataType, rowValues(new Object[] {1, "v11"}, partitionName)),
                         compactedRow(dataType, rowValues(new Object[] {2, "v22"}, partitionName)),
                         compactedRow(dataType, rowValues(new Object[] {4, "v4"}, partitionName)));
-        writeRows(tablePath, rows2, false);
+        writeRows(table, rows2, false);
 
         String options =
                 String.format(

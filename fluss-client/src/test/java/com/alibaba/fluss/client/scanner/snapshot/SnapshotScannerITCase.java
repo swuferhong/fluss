@@ -97,70 +97,67 @@ class SnapshotScannerITCase extends ClientToServerITCaseBase {
         TablePath tablePath = TablePath.of(DEFAULT_DB, "test-table-snapshot");
         long tableId = createTable(tablePath, DEFAULT_TABLE_DESCRIPTOR, true);
 
+        Table table = conn.getTable(tablePath);
         // scan the snapshot
-        Map<TableBucket, List<InternalRow>> expectedRowByBuckets = putRows(tableId, tablePath, 10);
+        Map<TableBucket, List<InternalRow>> expectedRowByBuckets = putRows(tableId, table, 10);
 
         // wait snapshot finish
         waitUtilAllSnapshotFinished(expectedRowByBuckets.keySet(), 0);
 
         // test read snapshot
-        testSnapshotRead(tablePath, expectedRowByBuckets);
+        testSnapshotRead(table, tablePath, expectedRowByBuckets);
 
         // test again;
-        expectedRowByBuckets = putRows(tableId, tablePath, 20);
+        expectedRowByBuckets = putRows(tableId, table, 20);
 
         // wait snapshot finish
         waitUtilAllSnapshotFinished(expectedRowByBuckets.keySet(), 1);
 
         // test read snapshot
-        testSnapshotRead(tablePath, expectedRowByBuckets);
+        testSnapshotRead(table, tablePath, expectedRowByBuckets);
     }
 
-    private Map<TableBucket, List<InternalRow>> putRows(long tableId, TablePath tablePath, int rows)
-            throws Exception {
+    private Map<TableBucket, List<InternalRow>> putRows(long tableId, Table table, int rows) {
         Map<TableBucket, List<InternalRow>> rowsByBuckets = new HashMap<>();
-        try (Table table = conn.getTable(tablePath)) {
-            UpsertWriter upsertWriter = table.getUpsertWriter();
-            for (int i = 0; i < rows; i++) {
-                InternalRow row = compactedRow(DATA1_ROW_TYPE, new Object[] {i, "v" + i});
-                upsertWriter.upsert(row);
-                TableBucket tableBucket = new TableBucket(tableId, getBucketId(row));
-                rowsByBuckets.computeIfAbsent(tableBucket, k -> new ArrayList<>()).add(row);
-            }
-            upsertWriter.flush();
+        UpsertWriter upsertWriter = table.getUpsertWriter();
+        for (int i = 0; i < rows; i++) {
+            InternalRow row = compactedRow(DATA1_ROW_TYPE, new Object[] {i, "v" + i});
+            upsertWriter.upsert(row);
+            TableBucket tableBucket = new TableBucket(tableId, getBucketId(row));
+            rowsByBuckets.computeIfAbsent(tableBucket, k -> new ArrayList<>()).add(row);
         }
+        upsertWriter.flush();
         return rowsByBuckets;
     }
 
     private void testSnapshotRead(
-            TablePath tablePath, Map<TableBucket, List<InternalRow>> bucketRows) throws Exception {
+            Table table, TablePath tablePath, Map<TableBucket, List<InternalRow>> bucketRows)
+            throws Exception {
         KvSnapshotInfo kvSnapshotInfo = admin.getKvSnapshot(tablePath).get();
         BucketsSnapshotInfo bucketsSnapshotInfo = kvSnapshotInfo.getBucketsSnapshots();
         long tableId = kvSnapshotInfo.getTableId();
-        try (Table table = conn.getTable(tablePath)) {
-            for (int bucketId : bucketsSnapshotInfo.getBucketIds()) {
-                TableBucket tableBucket = new TableBucket(tableId, bucketId);
-                BucketSnapshotInfo bucketSnapshotInfo =
-                        bucketsSnapshotInfo.getBucketSnapshotInfo(bucketId).get();
+        for (int bucketId : bucketsSnapshotInfo.getBucketIds()) {
+            TableBucket tableBucket = new TableBucket(tableId, bucketId);
+            BucketSnapshotInfo bucketSnapshotInfo =
+                    bucketsSnapshotInfo.getBucketSnapshotInfo(bucketId).get();
 
-                // create the snapshot scan according to the snapshot files
-                SnapshotScan snapshotScan =
-                        new SnapshotScan(
-                                tableBucket,
-                                bucketSnapshotInfo.getSnapshotFiles(),
-                                DEFAULT_SCHEMA,
-                                null);
-                SnapshotScanner snapshotScanner = table.getSnapshotScanner(snapshotScan);
+            // create the snapshot scan according to the snapshot files
+            SnapshotScan snapshotScan =
+                    new SnapshotScan(
+                            tableBucket,
+                            bucketSnapshotInfo.getSnapshotFiles(),
+                            DEFAULT_SCHEMA,
+                            null);
+            SnapshotScanner snapshotScanner = table.getSnapshotScanner(snapshotScan);
 
-                // collect all the records from the scanner
-                List<ScanRecord> scanRecords = collectRecords(snapshotScanner);
+            // collect all the records from the scanner
+            List<ScanRecord> scanRecords = collectRecords(snapshotScanner);
 
-                // get the expected rows
-                List<InternalRow> expectedRows = bucketRows.get(tableBucket);
+            // get the expected rows
+            List<InternalRow> expectedRows = bucketRows.get(tableBucket);
 
-                // check the records
-                assertScanRecords(scanRecords, expectedRows);
-            }
+            // check the records
+            assertScanRecords(scanRecords, expectedRows);
         }
     }
 

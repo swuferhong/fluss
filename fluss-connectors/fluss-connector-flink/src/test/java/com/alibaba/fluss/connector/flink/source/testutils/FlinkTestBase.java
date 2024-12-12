@@ -268,7 +268,7 @@ public class FlinkTestBase {
     }
 
     protected List<String> writeRowsToPartition(
-            TablePath tablePath, RowType rowType, Collection<String> partitions) throws Exception {
+            TablePath tablePath, RowType rowType, Collection<String> partitions) {
         List<InternalRow> rows = new ArrayList<>();
         List<String> expectedRowValues = new ArrayList<>();
         for (String partition : partitions) {
@@ -278,27 +278,24 @@ public class FlinkTestBase {
             }
         }
         // write records
-        writeRows(tablePath, rows, false);
+        writeRows(conn.getTable(tablePath), rows, false);
         return expectedRowValues;
     }
 
-    protected void writeRows(TablePath tablePath, List<InternalRow> rows, boolean append)
-            throws Exception {
-        try (Table table = conn.getTable(tablePath)) {
-            TableWriter tableWriter;
-            if (append) {
-                tableWriter = table.getAppendWriter();
-            } else {
-                tableWriter = table.getUpsertWriter();
-            }
-            for (InternalRow row : rows) {
-                if (tableWriter instanceof AppendWriter) {
-                    ((AppendWriter) tableWriter).append(row);
-                } else {
-                    ((UpsertWriter) tableWriter).upsert(row);
-                }
-            }
-            tableWriter.flush();
+    protected void writeRows(Table table, List<InternalRow> rows, boolean append) {
+        TableWriter tableWriter;
+        if (append) {
+            tableWriter = table.getAppendWriter();
+        } else {
+            tableWriter = table.getUpsertWriter();
         }
+        for (InternalRow row : rows) {
+            if (tableWriter instanceof AppendWriter) {
+                ((AppendWriter) tableWriter).append(row);
+            } else {
+                ((UpsertWriter) tableWriter).upsert(row);
+            }
+        }
+        tableWriter.flush();
     }
 }

@@ -16,6 +16,7 @@
 
 package com.alibaba.fluss.lakehouse.paimon.source;
 
+import com.alibaba.fluss.client.table.Table;
 import com.alibaba.fluss.config.ConfigOptions;
 import com.alibaba.fluss.connector.flink.source.testutils.FlinkTestBase;
 import com.alibaba.fluss.lakehouse.paimon.record.MultiplexCdcRecord;
@@ -128,7 +129,8 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
                         row(DATA1_ROW_TYPE, new Object[] {12, "v2"}),
                         row(DATA1_ROW_TYPE, new Object[] {13, "v3"}));
         // write records
-        writeRows(t2, rows, true);
+        Table table2 = conn.getTable(t2);
+        writeRows(table2, rows, true);
         // check the records are synced to target database
         verifyRecordsSynced(
                 sinkDataBase,
@@ -178,7 +180,7 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
                             "+I[13, v3, " + partitionName + "]"));
         }
 
-        writeRows(tablePath, rows, false);
+        writeRows(conn.getTable(tablePath), rows, false);
         return expected;
     }
 
@@ -253,7 +255,7 @@ class FlussDatabaseSyncSourceITCase extends FlinkTestBase {
                         compactedRow(DATA1_ROW_TYPE, new Object[] {2, "v2"}),
                         compactedRow(DATA1_ROW_TYPE, new Object[] {3, "v3"}));
         // write records
-        writeRows(tablePath, rows, false);
+        writeRows(conn.getTable(tablePath), rows, false);
         return table1Descriptor;
     }
 
