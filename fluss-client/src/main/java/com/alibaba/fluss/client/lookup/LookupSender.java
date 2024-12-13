@@ -201,12 +201,12 @@ class LookupSender implements Runnable {
             LookupBatch lookupBatch = lookupsByBucket.get(tableBucket);
             if (pbLookupRespForBucket.hasErrorCode()) {
                 // TODO for re-triable error, we should retry here instead of throwing exception.
+                ApiError error = ApiError.fromErrorMessage(pbLookupRespForBucket);
                 LOG.warn(
                         "Get error lookup response on table bucket {}, fail. Error: {}",
                         tableBucket,
-                        pbLookupRespForBucket.getErrorMessage());
-                lookupBatch.completeExceptionally(
-                        new FlussRuntimeException(pbLookupRespForBucket.getErrorMessage()));
+                        error.formatErrMsg());
+                lookupBatch.completeExceptionally(error.exception());
             } else {
                 List<PbValue> pbValues = pbLookupRespForBucket.getValuesList();
                 lookupBatch.complete(pbValues);

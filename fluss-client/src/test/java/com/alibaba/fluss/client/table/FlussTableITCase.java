@@ -222,7 +222,8 @@ class FlussTableITCase extends ClientToServerITCaseBase {
                 TableDescriptor.builder().schema(DATA1_SCHEMA_PK).distributedBy(10).build();
         long tableId = createTable(tablePath, descriptor, true);
         IndexedRow rowKey = keyRow(DATA1_SCHEMA_PK, new Object[] {1, "a"});
-        // retry until all replica ready. Otherwise, the lookup maybe fail.
+        // retry until all replica ready. Otherwise, the lookup maybe fail. To avoid test unstable,
+        // if you want to test the lookup for not ready table, you can comment the following line.
         waitAllReplicasReady(tableId, descriptor);
         Table table = conn.getTable(tablePath);
         assertThat(lookupRow(table, rowKey)).isNull();
