@@ -161,12 +161,14 @@ public class MemoryLogRecordsArrowBuilderTest {
 
         String tableSchemaId = 1L + "-" + 1;
         assertThat(provider.freeWriters().size()).isEqualTo(0);
+        int sizeInBytesBeforeClose = builder.getSizeInBytes();
         builder.close();
         builder.serialize();
         builder.setWriterState(1L, 0);
         MemoryLogRecords.pointToByteBuffer(builder.build().getByteBuf().nioBuffer());
         assertThat(provider.freeWriters().get(tableSchemaId).size()).isEqualTo(1);
         int sizeInBytes = builder.getSizeInBytes();
+        assertThat(sizeInBytes).isEqualTo(sizeInBytesBeforeClose);
         // get writer again, writer will be initial.
         ArrowWriter writer1 =
                 provider.getOrCreateWriter(1L, DEFAULT_SCHEMA_ID, maxSizeInBytes, DATA1_ROW_TYPE);
