@@ -83,6 +83,13 @@ public class FlussConfigUtils {
 
     public static void validateCoordinatorConfigs(Configuration conf) {
         validateServerConfigs(conf);
+
+        Optional<Integer> serverId = conf.getOptional(ConfigOptions.COORDINATOR_ID);
+        if (!serverId.isPresent()) {
+            throw new IllegalConfigurationException(
+                    String.format("Configuration %s must be set.", ConfigOptions.COORDINATOR_ID));
+        }
+        validMinValue(ConfigOptions.COORDINATOR_ID, serverId.get(), 0);
     }
 
     public static void validateTabletConfigs(Configuration conf) {

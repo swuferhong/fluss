@@ -32,7 +32,7 @@ public class TestingMetricGroups {
             new TabletServerMetricGroup(NOPMetricRegistry.INSTANCE, "fluss", "host", "rack", 0);
 
     public static final CoordinatorMetricGroup COORDINATOR_METRICS =
-            new CoordinatorMetricGroup(NOPMetricRegistry.INSTANCE, "cluster1", "host", "0");
+            new CoordinatorMetricGroup(NOPMetricRegistry.INSTANCE, "cluster1", "host", 0);
 
     public static final LakeTieringMetricGroup LAKE_TIERING_METRICS =
             new LakeTieringMetricGroup(NOPMetricRegistry.INSTANCE, COORDINATOR_METRICS);
