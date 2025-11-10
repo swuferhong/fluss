@@ -288,6 +288,7 @@ public class TestCoordinatorGateway implements CoordinatorGateway {
                                                 leaderAndIsr.leader(),
                                                 currentLeaderEpoch,
                                                 leaderAndIsr.isr(),
+                                                leaderAndIsr.standbyReplicas(),
                                                 leaderAndIsr.coordinatorEpoch(),
                                                 leaderAndIsr.bucketEpoch() + 1));
                     }

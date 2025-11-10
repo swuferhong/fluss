@@ -674,8 +674,7 @@ final class ReplicaTest extends ReplicaTestBase {
                 makeKvReplica(DATA1_PHYSICAL_TABLE_PATH_PK, tableBucket, testKvSnapshotContext);
         makeKvReplicaAsLeader(kvReplica);
         putRecordsToLeader(
-                kvReplica,
-                DataTestUtils.genKvRecordBatch(new Object[] {1, "a"}, new Object[] {2, "b"}));
+                kvReplica, genKvRecordBatch(new Object[] {1, "a"}, new Object[] {2, "b"}));
         makeKvReplicaAsFollower(kvReplica, 1);
 
         // make a kv replica again, should restore from log
@@ -699,8 +698,7 @@ final class ReplicaTest extends ReplicaTestBase {
 
         // write data again
         putRecordsToLeader(
-                kvReplica,
-                DataTestUtils.genKvRecordBatch(new Object[] {2, "bbb"}, new Object[] {3, "c"}));
+                kvReplica, genKvRecordBatch(new Object[] {2, "bbb"}, new Object[] {3, "c"}));
 
         // restore again
         makeKvReplicaAsLeader(kvReplica, 3);
@@ -783,6 +781,7 @@ final class ReplicaTest extends ReplicaTestBase {
                                 TABLET_SERVER_ID,
                                 leaderEpoch,
                                 Collections.singletonList(TABLET_SERVER_ID),
+                                Collections.emptyList(),
                                 INITIAL_COORDINATOR_EPOCH,
                                 // we also use the leader epoch as bucket epoch
                                 leaderEpoch)));
@@ -800,6 +799,7 @@ final class ReplicaTest extends ReplicaTestBase {
                                 TABLET_SERVER_ID,
                                 leaderEpoch,
                                 Collections.singletonList(TABLET_SERVER_ID),
+                                Collections.emptyList(),
                                 INITIAL_COORDINATOR_EPOCH,
                                 // we also use the leader epoch as bucket epoch
                                 leaderEpoch)));
