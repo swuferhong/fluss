@@ -76,6 +76,12 @@ public class MetricNames {
     public static final String SERVER_PHYSICAL_STORAGE_STANDBY_SIZE = "standbySize";
 
     // --------------------------------------------------------------------------------------------
+    // metrics for user
+    // --------------------------------------------------------------------------------------------
+    public static final String BYTES_IN = "bytesIn";
+    public static final String BYTES_OUT = "bytesOut";
+
+    // --------------------------------------------------------------------------------------------
     // metrics for table
     // --------------------------------------------------------------------------------------------
     public static final String MESSAGES_IN_RATE = "messagesInPerSecond";
