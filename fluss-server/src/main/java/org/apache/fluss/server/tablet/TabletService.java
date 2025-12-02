@@ -69,6 +69,7 @@ import org.apache.fluss.server.RpcServiceBase;
 import org.apache.fluss.server.authorizer.Authorizer;
 import org.apache.fluss.server.coordinator.MetadataManager;
 import org.apache.fluss.server.entity.FetchReqInfo;
+import org.apache.fluss.server.entity.LogUserContext;
 import org.apache.fluss.server.entity.NotifyLeaderAndIsrData;
 import org.apache.fluss.server.log.FetchParams;
 import org.apache.fluss.server.log.ListOffsetsParam;
@@ -169,6 +170,7 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
                 request.getTimeoutMs(),
                 request.getAcks(),
                 produceLogData,
+                new LogUserContext(currentSession().getPrincipal()),
                 bucketResponseMap -> response.complete(makeProduceLogResponse(bucketResponseMap)));
         return response;
     }
@@ -193,6 +195,7 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
         replicaManager.fetchLogRecords(
                 fetchParams,
                 interesting,
+                new LogUserContext(currentSession().getPrincipal()),
                 fetchResponseMap ->
                         response.complete(
                                 makeFetchLogResponse(fetchResponseMap, errorResponseMap)));
@@ -227,6 +230,7 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
                 request.getAcks(),
                 putKvData,
                 getTargetColumns(request),
+                new LogUserContext(currentSession().getPrincipal()),
                 bucketResponse -> response.complete(makePutKvResponse(bucketResponse)));
         return response;
     }
