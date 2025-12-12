@@ -21,10 +21,10 @@ package org.apache.fluss.server.entity;
 import org.apache.fluss.security.acl.FlussPrincipal;
 
 /** The context information of user who writes or reads table. */
-public class LogUserContext {
+public class UserContext {
     private final FlussPrincipal principal;
 
-    public LogUserContext(FlussPrincipal principal) {
+    public UserContext(FlussPrincipal principal) {
         this.principal = principal;
     }
 

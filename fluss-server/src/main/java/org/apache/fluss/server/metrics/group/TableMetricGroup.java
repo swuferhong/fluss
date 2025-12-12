@@ -28,7 +28,7 @@ import org.apache.fluss.metrics.ThreadSafeSimpleCounter;
 import org.apache.fluss.metrics.groups.AbstractMetricGroup;
 import org.apache.fluss.metrics.registry.MetricRegistry;
 import org.apache.fluss.security.acl.FlussPrincipal;
-import org.apache.fluss.server.entity.LogUserContext;
+import org.apache.fluss.server.entity.UserContext;
 import org.apache.fluss.utils.MapUtils;
 
 import javax.annotation.Nullable;
@@ -95,37 +95,30 @@ public class TableMetricGroup extends AbstractMetricGroup {
         return "table";
     }
 
-    public void incLogMessageIn(long n, LogUserContext userContext) {
+    public void incLogMessageIn(long n) {
         logMetrics.messagesIn.inc(n);
         serverMetrics.messageIn().inc(n);
-
-        // user level metric
-        Optional.ofNullable(userContext)
-                .map(LogUserContext::getPrincipal)
-                .map(FlussPrincipal::getName)
-                .filter(name -> !name.isEmpty())
-                .ifPresent(name -> getOrCreateUserMetricGroup(name).messagesIn.inc(n));
     }
 
-    public void incLogBytesIn(long n, LogUserContext userContext) {
+    public void incLogBytesIn(long n, UserContext userContext) {
         logMetrics.bytesIn.inc(n);
         serverMetrics.bytesIn().inc(n);
 
         // user level metric
         Optional.ofNullable(userContext)
-                .map(LogUserContext::getPrincipal)
+                .map(UserContext::getPrincipal)
                 .map(FlussPrincipal::getName)
                 .filter(name -> !name.isEmpty())
                 .ifPresent(name -> getOrCreateUserMetricGroup(name).bytesIn.inc(n));
     }
 
-    public void incLogBytesOut(long n, LogUserContext userContext) {
+    public void incLogBytesOut(long n, UserContext userContext) {
         logMetrics.bytesOut.inc(n);
         serverMetrics.bytesOut().inc(n);
 
         // user level metric
         Optional.ofNullable(userContext)
-                .map(LogUserContext::getPrincipal)
+                .map(UserContext::getPrincipal)
                 .map(FlussPrincipal::getName)
                 .filter(name -> !name.isEmpty())
                 .ifPresent(name -> getOrCreateUserMetricGroup(name).bytesOut.inc(n));
@@ -254,17 +247,13 @@ public class TableMetricGroup extends AbstractMetricGroup {
     // ------------------------------------------------------------------------
     private UserMetricGroup getOrCreateUserMetricGroup(String principalName) {
         return userMetricGroups.computeIfAbsent(
-                principalName,
-                name -> {
-                    return new UserMetricGroup(this, principalName);
-                });
+                principalName, name -> new UserMetricGroup(this, principalName));
     }
 
     private static class UserMetricGroup extends AbstractMetricGroup {
         private final String principalName;
         protected final Counter bytesIn;
         protected final Counter bytesOut;
-        protected final Counter messagesIn;
 
         private UserMetricGroup(TableMetricGroup tableMetricGroup, String principalName) {
             super(
@@ -272,8 +261,6 @@ public class TableMetricGroup extends AbstractMetricGroup {
                     makeScope(tableMetricGroup, principalName),
                     tableMetricGroup);
             this.principalName = principalName;
-            messagesIn = new ThreadSafeSimpleCounter();
-            meter(MetricNames.MESSAGES_IN_RATE, new MeterView(messagesIn));
             bytesIn = new ThreadSafeSimpleCounter();
             meter(MetricNames.BYTES_IN_RATE, new MeterView(bytesIn));
             bytesOut = new ThreadSafeSimpleCounter();

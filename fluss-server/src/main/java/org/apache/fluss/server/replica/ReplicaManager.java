@@ -60,7 +60,6 @@ import org.apache.fluss.rpc.protocol.Errors;
 import org.apache.fluss.server.coordinator.CoordinatorContext;
 import org.apache.fluss.server.entity.FetchReqInfo;
 import org.apache.fluss.server.entity.LakeBucketOffset;
-import org.apache.fluss.server.entity.LogUserContext;
 import org.apache.fluss.server.entity.NotifyKvSnapshotOffsetData;
 import org.apache.fluss.server.entity.NotifyLakeTableOffsetData;
 import org.apache.fluss.server.entity.NotifyLeaderAndIsrData;
@@ -68,6 +67,7 @@ import org.apache.fluss.server.entity.NotifyLeaderAndIsrResultForBucket;
 import org.apache.fluss.server.entity.NotifyRemoteLogOffsetsData;
 import org.apache.fluss.server.entity.StopReplicaData;
 import org.apache.fluss.server.entity.StopReplicaResultForBucket;
+import org.apache.fluss.server.entity.UserContext;
 import org.apache.fluss.server.kv.KvManager;
 import org.apache.fluss.server.kv.KvSnapshotResource;
 import org.apache.fluss.server.kv.snapshot.CompletedKvSnapshotCommitter;
@@ -457,7 +457,7 @@ public class ReplicaManager {
             int timeoutMs,
             int requiredAcks,
             Map<TableBucket, MemoryLogRecords> entriesPerBucket,
-            LogUserContext userContext,
+            UserContext userContext,
             Consumer<List<ProduceLogResultForBucket>> responseCallback) {
         if (isRequiredAcksInvalid(requiredAcks)) {
             throw new InvalidRequiredAcksException("Invalid required acks: " + requiredAcks);
@@ -473,14 +473,6 @@ public class ReplicaManager {
                 timeoutMs, requiredAcks, entriesPerBucket.size(), appendResult, responseCallback);
     }
 
-    public void appendRecordsToLog(
-            int timeoutMs,
-            int requiredAcks,
-            Map<TableBucket, MemoryLogRecords> entriesPerBucket,
-            Consumer<List<ProduceLogResultForBucket>> responseCallback) {
-        appendRecordsToLog(timeoutMs, requiredAcks, entriesPerBucket, null, responseCallback);
-    }
-
     /**
      * Fetch records from a replica. Currently, we will return the fetched records immediately.
      *
@@ -490,7 +482,7 @@ public class ReplicaManager {
     public void fetchLogRecords(
             FetchParams params,
             Map<TableBucket, FetchReqInfo> bucketFetchInfo,
-            LogUserContext userContext,
+            UserContext userContext,
             Consumer<Map<TableBucket, FetchLogResultForBucket>> responseCallback) {
         long startTime = System.currentTimeMillis();
         Map<TableBucket, LogReadResult> logReadResults =
@@ -506,13 +498,6 @@ public class ReplicaManager {
                 params, bucketFetchInfo, logReadResults, userContext, responseCallback);
     }
 
-    public void fetchLogRecords(
-            FetchParams params,
-            Map<TableBucket, FetchReqInfo> bucketFetchInfo,
-            Consumer<Map<TableBucket, FetchLogResultForBucket>> responseCallback) {
-        fetchLogRecords(params, bucketFetchInfo, null, responseCallback);
-    }
-
     /**
      * Put kv records to leader replicas of the buckets, the kv data will write to kv tablet and the
      * response callback need to wait for the cdc log to be replicated to other replicas if needed.
@@ -522,7 +507,7 @@ public class ReplicaManager {
             int requiredAcks,
             Map<TableBucket, KvRecordBatch> entriesPerBucket,
             @Nullable int[] targetColumns,
-            LogUserContext userContext,
+            UserContext userContext,
             Consumer<List<PutKvResultForBucket>> responseCallback) {
         if (isRequiredAcksInvalid(requiredAcks)) {
             throw new InvalidRequiredAcksException("Invalid required acks: " + requiredAcks);
@@ -539,16 +524,6 @@ public class ReplicaManager {
         // replicas.
         maybeAddDelayedWrite(
                 timeoutMs, requiredAcks, entriesPerBucket.size(), kvPutResult, responseCallback);
-    }
-
-    public void putRecordsToKv(
-            int timeoutMs,
-            int requiredAcks,
-            Map<TableBucket, KvRecordBatch> entriesPerBucket,
-            @Nullable int[] targetColumns,
-            Consumer<List<PutKvResultForBucket>> responseCallback) {
-        putRecordsToKv(
-                timeoutMs, requiredAcks, entriesPerBucket, targetColumns, null, responseCallback);
     }
 
     /** Lookup a single key value. */
@@ -958,7 +933,7 @@ public class ReplicaManager {
     private Map<TableBucket, ProduceLogResultForBucket> appendToLocalLog(
             Map<TableBucket, MemoryLogRecords> entriesPerBucket,
             int requiredAcks,
-            LogUserContext userContext) {
+            UserContext userContext) {
         Map<TableBucket, ProduceLogResultForBucket> resultForBucketMap = new HashMap<>();
         for (Map.Entry<TableBucket, MemoryLogRecords> entry : entriesPerBucket.entrySet()) {
             TableBucket tb = entry.getKey();
@@ -982,7 +957,7 @@ public class ReplicaManager {
                         tb,
                         new ProduceLogResultForBucket(tb, baseOffset, appendInfo.lastOffset() + 1));
                 tableMetrics.incLogBytesIn(appendInfo.validBytes(), userContext);
-                tableMetrics.incLogMessageIn(appendInfo.numMessages(), userContext);
+                tableMetrics.incLogMessageIn(appendInfo.numMessages());
             } catch (Exception e) {
                 if (isUnexpectedException(e)) {
                     LOG.error("Error append records to local log on replica {}", tb, e);
@@ -1005,7 +980,7 @@ public class ReplicaManager {
             Map<TableBucket, KvRecordBatch> entriesPerBucket,
             @Nullable int[] targetColumns,
             int requiredAcks,
-            LogUserContext userContext) {
+            UserContext userContext) {
         Map<TableBucket, PutKvResultForBucket> putResultForBucketMap = new HashMap<>();
         for (Map.Entry<TableBucket, KvRecordBatch> entry : entriesPerBucket.entrySet()) {
             TableBucket tb = entry.getKey();
@@ -1030,7 +1005,7 @@ public class ReplicaManager {
                 tableMetrics.incKvBytesIn(entry.getValue().sizeInBytes());
                 // metric for cdc log of kv
                 tableMetrics.incLogBytesIn(appendInfo.validBytes(), userContext);
-                tableMetrics.incLogMessageIn(appendInfo.numMessages(), userContext);
+                tableMetrics.incLogMessageIn(appendInfo.numMessages());
             } catch (Exception e) {
                 if (isUnexpectedException(e)) {
                     LOG.error("Error put records to local kv on replica {}", tb, e);
@@ -1085,7 +1060,7 @@ public class ReplicaManager {
     public Map<TableBucket, LogReadResult> readFromLog(
             FetchParams fetchParams,
             Map<TableBucket, FetchReqInfo> bucketFetchInfo,
-            LogUserContext userContext) {
+            UserContext userContext) {
         Map<TableBucket, LogReadResult> logReadResult = new HashMap<>();
         boolean isFromFollower = fetchParams.isFromFollower();
         int limitBytes = fetchParams.maxFetchBytes();
@@ -1333,7 +1308,7 @@ public class ReplicaManager {
             FetchParams params,
             Map<TableBucket, FetchReqInfo> bucketFetchInfo,
             Map<TableBucket, LogReadResult> logReadResults,
-            LogUserContext userContext,
+            UserContext userContext,
             Consumer<Map<TableBucket, FetchLogResultForBucket>> responseCallback) {
         long bytesReadable = 0;
         boolean errorReadingData = false;

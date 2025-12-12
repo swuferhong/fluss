@@ -380,7 +380,7 @@ Some metrics might not be exposed when using other JVM implementations (e.g. IBM
   </thead>
   <tbody>
     <tr>
-      <th rowspan="32"><strong>tabletserver</strong></th>
+      <th rowspan="31"><strong>tabletserver</strong></th>
       <td style={{textAlign: 'center', verticalAlign: 'middle' }} rowspan="25">-</td>
       <td>messagesInPerSecond</td>
       <td>The number of messages written per second to this server.</td>
@@ -529,12 +529,7 @@ Some metrics might not be exposed when using other JVM implementations (e.g. IBM
       <td>Gauge</td>
     </tr>
     <tr>
-      <td rowspan="3">user</td>
-      <td>messagesInPerSecond</td>
-      <td>The number of messages written per second to this table labeled with user <code>name</code>.</td>
-      <td>Meter</td>
-    </tr>
-     <tr>
+      <td rowspan="2">user</td>
       <td>bytesInPerSecond</td>
       <td>The number of bytes written per second to this table labeled with user <code>name</code>.</td>
       <td>Meter</td>
