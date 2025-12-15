@@ -19,6 +19,7 @@ package org.apache.fluss.server;
 
 import org.apache.fluss.annotation.Internal;
 import org.apache.fluss.config.Configuration;
+import org.apache.fluss.config.cluster.ConfigValidator;
 import org.apache.fluss.config.cluster.ServerReconfigurable;
 import org.apache.fluss.exception.ConfigException;
 import org.apache.fluss.utils.MapUtils;
@@ -26,15 +27,20 @@ import org.apache.fluss.utils.MapUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static org.apache.fluss.config.ConfigOptions.DATALAKE_FORMAT;
+import static org.apache.fluss.config.ConfigOptions.KV_SHARED_RATE_LIMITER_BYTES_PER_SEC;
 import static org.apache.fluss.utils.concurrent.LockUtils.inReadLock;
 import static org.apache.fluss.utils.concurrent.LockUtils.inWriteLock;
 
@@ -49,12 +55,18 @@ class DynamicServerConfig {
 
     private static final Logger LOG = LoggerFactory.getLogger(DynamicServerConfig.class);
     private static final Set<String> ALLOWED_CONFIG_KEYS =
-            Collections.singleton(DATALAKE_FORMAT.key());
+            new HashSet<>(
+                    Arrays.asList(
+                            DATALAKE_FORMAT.key(), KV_SHARED_RATE_LIMITER_BYTES_PER_SEC.key()));
     private static final Set<String> ALLOWED_CONFIG_PREFIXES = Collections.singleton("datalake.");
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Map<Class<? extends ServerReconfigurable>, ServerReconfigurable>
             serverReconfigures = MapUtils.newConcurrentHashMap();
+
+    /** Registered stateless config validators, organized by config key for efficient lookup. */
+    private final Map<String, List<ConfigValidator>> configValidatorsByKey =
+            MapUtils.newConcurrentHashMap();
 
     /** The initial configuration items when the server starts from server.yaml. */
     private final Map<String, String> initialConfigMap;
@@ -81,6 +93,25 @@ class DynamicServerConfig {
 
     void register(ServerReconfigurable serverReconfigurable) {
         serverReconfigures.put(serverReconfigurable.getClass(), serverReconfigurable);
+    }
+
+    /**
+     * Register a ConfigValidator for stateless validation.
+     *
+     * <p>This is typically used by CoordinatorServer to validate configs for components it doesn't
+     * run (e.g., KvManager). Validators are stateless and only perform validation without requiring
+     * component instances.
+     *
+     * <p>Validators are organized by config key for efficient lookup. Multiple validators can be
+     * registered for the same config key.
+     *
+     * @param validator the config validator to register
+     */
+    void registerValidator(ConfigValidator validator) {
+        String configKey = validator.configKey();
+        configValidatorsByKey
+                .computeIfAbsent(configKey, k -> new CopyOnWriteArrayList<>())
+                .add(validator);
     }
 
     /**
@@ -121,6 +152,42 @@ class DynamicServerConfig {
         Configuration oldConfig = currentConfig;
         Set<ServerReconfigurable> appliedServerReconfigurableSet = new HashSet<>();
         if (!newProps.equals(currentConfigMap)) {
+            // Run stateless validators first - only for changed keys
+            for (Map.Entry<String, List<ConfigValidator>> entry :
+                    configValidatorsByKey.entrySet()) {
+                String configKey = entry.getKey();
+                List<ConfigValidator> validators = entry.getValue();
+
+                // Get old and new values, considering defaults from initial config
+                String oldValue = currentConfigMap.get(configKey);
+                String newValue = newProps.get(configKey);
+
+                // If oldValue is null but the key exists in initial config, use initial value
+                // This handles the case where a config was never dynamically changed
+                if (oldValue == null && initialConfigMap.containsKey(configKey)) {
+                    oldValue = initialConfigMap.get(configKey);
+                }
+
+                // Only validate if the value actually changed
+                if (!Objects.equals(oldValue, newValue)) {
+                    for (ConfigValidator validator : validators) {
+                        try {
+                            validator.validate(oldValue, newValue);
+                        } catch (ConfigException e) {
+                            LOG.error(
+                                    "Config validation failed for key '{}': {} -> {}",
+                                    configKey,
+                                    oldValue,
+                                    newValue,
+                                    e);
+                            if (!skipErrorConfig) {
+                                throw e;
+                            }
+                        }
+                    }
+                }
+            }
+
             serverReconfigures
                     .values()
                     .forEach(

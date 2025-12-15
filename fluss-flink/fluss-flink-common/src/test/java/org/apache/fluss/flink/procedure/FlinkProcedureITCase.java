@@ -29,6 +29,7 @@ import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.CloseableIterator;
 import org.apache.flink.util.CollectionUtil;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -86,12 +87,42 @@ public abstract class FlinkProcedureITCase {
         tEnv.executeSql("use catalog " + CATALOG_NAME);
     }
 
+    @AfterEach
+    void after() throws Exception {
+        // Clean up any dynamic config changes made during the test
+        // to ensure tests don't affect each other
+        if (tEnv != null) {
+            try {
+                // Delete dynamic configs that might have been modified during tests
+                // This resets them to their initial static configuration values
+                tEnv.executeSql(
+                                String.format(
+                                        "Call %s.sys.set_cluster_config('%s')",
+                                        CATALOG_NAME,
+                                        ConfigOptions.KV_SHARED_RATE_LIMITER_BYTES_PER_SEC.key()))
+                        .await();
+                tEnv.executeSql(
+                                String.format(
+                                        "Call %s.sys.set_cluster_config('%s')",
+                                        CATALOG_NAME, ConfigOptions.DATALAKE_FORMAT.key()))
+                        .await();
+            } catch (Exception e) {
+                // Ignore cleanup errors to avoid masking test failures
+            }
+        }
+    }
+
     @Test
     void testShowProcedures() throws Exception {
         try (CloseableIterator<Row> showProceduresIterator =
                 tEnv.executeSql("show procedures").collect()) {
             List<String> expectedShowProceduresResult =
-                    Arrays.asList("+I[sys.add_acl]", "+I[sys.drop_acl]", "+I[sys.list_acl]");
+                    Arrays.asList(
+                            "+I[sys.add_acl]",
+                            "+I[sys.drop_acl]",
+                            "+I[sys.get_cluster_config]",
+                            "+I[sys.list_acl]",
+                            "+I[sys.set_cluster_config]");
             // make sure no more results is unread.
             assertResultsIgnoreOrder(showProceduresIterator, expectedShowProceduresResult, true);
         }
@@ -259,6 +290,120 @@ public abstract class FlinkProcedureITCase {
         }
     }
 
+    @Test
+    void testGetClusterConfig() throws Exception {
+        // Get specific config
+        try (CloseableIterator<Row> resultIterator =
+                tEnv.executeSql(
+                                String.format(
+                                        "Call %s.sys.get_cluster_config('%s')",
+                                        CATALOG_NAME,
+                                        ConfigOptions.KV_SHARED_RATE_LIMITER_BYTES_PER_SEC.key()))
+                        .collect()) {
+            List<Row> results = CollectionUtil.iteratorToList(resultIterator);
+            assertThat(results).hasSize(1);
+            Row row = results.get(0);
+            assertThat(row.getField(0))
+                    .isEqualTo(ConfigOptions.KV_SHARED_RATE_LIMITER_BYTES_PER_SEC.key());
+            assertThat(row.getField(1)).isEqualTo("100 mb");
+            assertThat(row.getField(2)).isNotNull(); // config_source
+        }
+
+        // Get all configs
+        try (CloseableIterator<Row> resultIterator =
+                tEnv.executeSql(String.format("Call %s.sys.get_cluster_config()", CATALOG_NAME))
+                        .collect()) {
+            List<Row> results = CollectionUtil.iteratorToList(resultIterator);
+            assertThat(results).isNotEmpty();
+        }
+
+        // Get non-existent config
+        try (CloseableIterator<Row> resultIterator =
+                tEnv.executeSql(
+                                String.format(
+                                        "Call %s.sys.get_cluster_config('non.existent.config')",
+                                        CATALOG_NAME))
+                        .collect()) {
+            List<Row> results = CollectionUtil.iteratorToList(resultIterator);
+            assertThat(results).hasSize(1);
+            assertThat(results.get(0).getField(0))
+                    .asString()
+                    .contains("Configuration key 'non.existent.config' not found");
+        }
+    }
+
+    @Test
+    void testSetClusterConfig() throws Exception {
+        // Test setting a valid config
+        try (CloseableIterator<Row> resultIterator =
+                tEnv.executeSql(
+                                String.format(
+                                        "Call %s.sys.set_cluster_config('%s', '200MB')",
+                                        CATALOG_NAME,
+                                        ConfigOptions.KV_SHARED_RATE_LIMITER_BYTES_PER_SEC.key()))
+                        .collect()) {
+            List<Row> results = CollectionUtil.iteratorToList(resultIterator);
+            assertThat(results).hasSize(1);
+            assertThat(results.get(0).getField(0))
+                    .asString()
+                    .contains("Successfully set to '200MB'")
+                    .contains(ConfigOptions.KV_SHARED_RATE_LIMITER_BYTES_PER_SEC.key());
+        }
+
+        // Verify the config was actually set
+        try (CloseableIterator<Row> resultIterator =
+                tEnv.executeSql(
+                                String.format(
+                                        "Call %s.sys.get_cluster_config('%s')",
+                                        CATALOG_NAME,
+                                        ConfigOptions.KV_SHARED_RATE_LIMITER_BYTES_PER_SEC.key()))
+                        .collect()) {
+            List<Row> results = CollectionUtil.iteratorToList(resultIterator);
+            assertThat(results).hasSize(1);
+            assertThat(results.get(0).getField(1)).isEqualTo("200MB");
+        }
+    }
+
+    @Test
+    void testDeleteClusterConfig() throws Exception {
+        // First set a config
+        tEnv.executeSql(
+                        String.format(
+                                "Call %s.sys.set_cluster_config('%s', 'paimon')",
+                                CATALOG_NAME, ConfigOptions.DATALAKE_FORMAT.key()))
+                .await();
+
+        // Delete the config (reset to default) - omitting the value parameter
+        try (CloseableIterator<Row> resultIterator =
+                tEnv.executeSql(
+                                String.format(
+                                        "Call %s.sys.set_cluster_config('%s')",
+                                        CATALOG_NAME, ConfigOptions.DATALAKE_FORMAT.key()))
+                        .collect()) {
+            List<Row> results = CollectionUtil.iteratorToList(resultIterator);
+            assertThat(results).hasSize(1);
+            assertThat(results.get(0).getField(0))
+                    .asString()
+                    .contains("Successfully deleted")
+                    .contains(ConfigOptions.DATALAKE_FORMAT.key());
+        }
+    }
+
+    @Test
+    void testSetClusterConfigValidation() throws Exception {
+        // Try to set an invalid config (not allowed for dynamic change)
+        assertThatThrownBy(
+                        () ->
+                                tEnv.executeSql(
+                                                String.format(
+                                                        "Call %s.sys.set_cluster_config('invalid.config.key', 'value')",
+                                                        CATALOG_NAME))
+                                        .await())
+                .rootCause()
+                .hasMessageContaining(
+                        "The config key invalid.config.key is not allowed to be changed dynamically");
+    }
+
     private static Configuration initConfig() {
         Configuration conf = new Configuration();
         conf.setInt(ConfigOptions.DEFAULT_REPLICATION_FACTOR, 3);
@@ -271,6 +416,9 @@ public abstract class FlinkProcedureITCase {
 
         conf.set(ConfigOptions.CLIENT_WRITER_BUFFER_MEMORY_SIZE, MemorySize.parse("1mb"));
         conf.set(ConfigOptions.CLIENT_WRITER_BATCH_SIZE, MemorySize.parse("1kb"));
+
+        // Enable shared RocksDB rate limiter for testing
+        conf.set(ConfigOptions.KV_SHARED_RATE_LIMITER_BYTES_PER_SEC, MemorySize.parse("100mb"));
 
         // set security information.
         conf.setString(ConfigOptions.SERVER_SECURITY_PROTOCOL_MAP.key(), "CLIENT:sasl");
