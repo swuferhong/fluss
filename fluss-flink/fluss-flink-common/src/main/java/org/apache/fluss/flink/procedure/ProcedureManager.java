@@ -69,7 +69,9 @@ public class ProcedureManager {
     private enum ProcedureEnum {
         ADD_ACL("sys.add_acl", AddAclProcedure.class),
         DROP_ACL("sys.drop_acl", DropAclProcedure.class),
-        List_ACL("sys.list_acl", ListAclProcedure.class);
+        List_ACL("sys.list_acl", ListAclProcedure.class),
+        CLEAR_KV_SNAPSHOT_CONSUMER(
+                "sys.clear_kv_snapshot_consumer", ClearKvSnapshotConsumerProcedure.class);
 
         private final String path;
         private final Class<? extends ProcedureBase> procedureClass;

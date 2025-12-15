@@ -91,6 +91,7 @@ public class FlussSourceITCase extends FlinkTestBase {
                         .setTable(pkTableName)
                         .setStartingOffsets(OffsetsInitializer.earliest())
                         .setScanPartitionDiscoveryIntervalMs(1000L)
+                        .setKvSnapshotConsumerId("test-consumer-1vd7j9")
                         .setDeserializationSchema(new MockDataUtils.OrderDeserializationSchema())
                         .build();
 
@@ -123,6 +124,7 @@ public class FlussSourceITCase extends FlinkTestBase {
                         .setTable(pkTableName)
                         .setStartingOffsets(OffsetsInitializer.earliest())
                         .setScanPartitionDiscoveryIntervalMs(1000L)
+                        .setKvSnapshotConsumerId("test-consumer-kj232df")
                         .setDeserializationSchema(new OrderPartialDeserializationSchema())
                         .setProjectedFields("orderId", "amount")
                         .build();
@@ -151,6 +153,7 @@ public class FlussSourceITCase extends FlinkTestBase {
                         .setTable(pkTableName)
                         .setStartingOffsets(OffsetsInitializer.earliest())
                         .setScanPartitionDiscoveryIntervalMs(1000L)
+                        .setKvSnapshotConsumerId("test-consumer-sdafa3")
                         .setDeserializationSchema(new RowDataDeserializationSchema())
                         .build();
 

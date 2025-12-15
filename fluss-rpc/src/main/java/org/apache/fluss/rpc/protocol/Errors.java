@@ -43,6 +43,7 @@ import org.apache.fluss.exception.InvalidTableException;
 import org.apache.fluss.exception.InvalidTargetColumnException;
 import org.apache.fluss.exception.InvalidTimestampException;
 import org.apache.fluss.exception.InvalidUpdateVersionException;
+import org.apache.fluss.exception.KvSnapshotConsumerNotExistException;
 import org.apache.fluss.exception.KvSnapshotNotExistException;
 import org.apache.fluss.exception.KvStorageException;
 import org.apache.fluss.exception.LakeStorageNotConfiguredException;
@@ -228,7 +229,9 @@ public enum Errors {
     INVALID_ALTER_TABLE_EXCEPTION(
             56, "The alter table is invalid.", InvalidAlterTableException::new),
     DELETION_DISABLED_EXCEPTION(
-            57, "Deletion operations are disabled on this table.", DeletionDisabledException::new);
+            57, "Deletion operations are disabled on this table.", DeletionDisabledException::new),
+    KV_SNAPSHOT_CONSUMER_NOT_EXIST(
+            58, "The kv snapshot consumer is not exist.", KvSnapshotConsumerNotExistException::new);
 
     private static final Logger LOG = LoggerFactory.getLogger(Errors.class);
 
