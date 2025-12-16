@@ -476,6 +476,7 @@ class KvTabletSnapshotTargetTest {
 
         CompletedSnapshotStore completedSnapshotStore =
                 new CompletedSnapshotStore(
+                        1,
                         sharedKvFileRegistry,
                         Collections.emptyList(),
                         snapshotHandleStore,

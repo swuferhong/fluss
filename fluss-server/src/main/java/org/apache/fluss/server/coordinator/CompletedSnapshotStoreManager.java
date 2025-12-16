@@ -46,6 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 
+import static org.apache.fluss.utils.Preconditions.checkArgument;
 import static org.apache.fluss.utils.Preconditions.checkNotNull;
 
 /**
@@ -57,6 +58,7 @@ import static org.apache.fluss.utils.Preconditions.checkNotNull;
 public class CompletedSnapshotStoreManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(CompletedSnapshotStoreManager.class);
+    private final int maxNumberOfSnapshotsToRetain;
     private final ZooKeeperClient zooKeeperClient;
     private final ConcurrentHashMap<TableBucket, CompletedSnapshotStore>
             bucketCompletedSnapshotStores;
@@ -67,11 +69,13 @@ public class CompletedSnapshotStoreManager {
     private final CoordinatorMetricGroup coordinatorMetricGroup;
 
     public CompletedSnapshotStoreManager(
+            int maxNumberOfSnapshotsToRetain,
             Executor ioExecutor,
             ZooKeeperClient zooKeeperClient,
             CoordinatorMetricGroup coordinatorMetricGroup,
             CanSubsume canSubsume) {
         this(
+                maxNumberOfSnapshotsToRetain,
                 ioExecutor,
                 zooKeeperClient,
                 ZooKeeperCompletedSnapshotHandleStore::new,
@@ -81,12 +85,16 @@ public class CompletedSnapshotStoreManager {
 
     @VisibleForTesting
     CompletedSnapshotStoreManager(
+            int maxNumberOfSnapshotsToRetain,
             Executor ioExecutor,
             ZooKeeperClient zooKeeperClient,
             Function<ZooKeeperClient, CompletedSnapshotHandleStore>
                     makeZookeeperCompletedSnapshotHandleStore,
             CoordinatorMetricGroup coordinatorMetricGroup,
             CanSubsume canSubsume) {
+        checkArgument(
+                maxNumberOfSnapshotsToRetain > 0, "maxNumberOfSnapshotsToRetain must be positive");
+        this.maxNumberOfSnapshotsToRetain = maxNumberOfSnapshotsToRetain;
         this.zooKeeperClient = zooKeeperClient;
         this.bucketCompletedSnapshotStores = MapUtils.newConcurrentHashMap();
         this.ioExecutor = ioExecutor;
@@ -231,6 +239,7 @@ public class CompletedSnapshotStoreManager {
         }
 
         return new CompletedSnapshotStore(
+                maxNumberOfSnapshotsToRetain,
                 sharedKvFileRegistry,
                 retrievedSnapshots,
                 completedSnapshotHandleStore,

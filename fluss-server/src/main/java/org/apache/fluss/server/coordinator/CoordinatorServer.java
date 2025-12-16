@@ -521,6 +521,12 @@ public class CoordinatorServer extends ServerBase {
                             "Invalid configuration for %s, it must be greater than or equal 1.",
                             ConfigOptions.DEFAULT_REPLICATION_FACTOR.key()));
         }
+        if (conf.get(ConfigOptions.KV_MAX_RETAINED_SNAPSHOTS) < 1) {
+            throw new IllegalConfigurationException(
+                    String.format(
+                            "Invalid configuration for %s, it must be greater than or equal 1.",
+                            ConfigOptions.KV_MAX_RETAINED_SNAPSHOTS.key()));
+        }
 
         if (conf.get(ConfigOptions.COORDINATOR_IO_POOL_SIZE) < 1) {
             throw new IllegalConfigurationException(

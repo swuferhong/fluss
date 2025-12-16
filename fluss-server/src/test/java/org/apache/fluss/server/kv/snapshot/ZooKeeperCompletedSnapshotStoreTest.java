@@ -135,6 +135,7 @@ class ZooKeeperCompletedSnapshotStoreTest {
         ZooKeeperCompletedSnapshotHandleStore snapshotsInZooKeeper =
                 new ZooKeeperCompletedSnapshotHandleStore(zooKeeperClient);
         return new CompletedSnapshotStore(
+                1,
                 sharedKvFileRegistry,
                 Collections.emptyList(),
                 snapshotsInZooKeeper,

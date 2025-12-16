@@ -370,7 +370,9 @@ message RegisterKvSnapshotConsumerRequest {
   repeated PbConsumeKvSnapshotForTable register_tables = 3;
 }
 
-message RegisterKvSnapshotConsumerResponse {}
+message RegisterKvSnapshotConsumerResponse {
+  repeated PbTable failed_tables = 1;
+}
 
 message UnregisterKvSnapshotConsumerRequest {
   required string consumer_id = 1;

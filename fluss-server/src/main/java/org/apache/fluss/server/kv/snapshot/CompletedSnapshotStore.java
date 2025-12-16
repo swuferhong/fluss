@@ -52,6 +52,9 @@ public class CompletedSnapshotStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(CompletedSnapshotStore.class);
 
+    /** The maximum number of snapshots to retain (at least 1). */
+    private final int maxNumberOfSnapshotsToRetain;
+
     /** Completed snapshots state kv store. */
     private final CompletedSnapshotHandleStore completedSnapshotHandleStore;
 
@@ -68,11 +71,13 @@ public class CompletedSnapshotStore {
     private final ArrayDeque<CompletedSnapshot> completedSnapshots;
 
     public CompletedSnapshotStore(
+            int maxNumberOfSnapshotsToRetain,
             SharedKvFileRegistry sharedKvFileRegistry,
             Collection<CompletedSnapshot> completedSnapshots,
             CompletedSnapshotHandleStore completedSnapshotHandleStore,
             Executor executor,
             CanSubsume canSubsume) {
+        this.maxNumberOfSnapshotsToRetain = maxNumberOfSnapshotsToRetain;
         this.sharedKvFileRegistry = sharedKvFileRegistry;
         this.completedSnapshots = new ArrayDeque<>();
         this.completedSnapshots.addAll(completedSnapshots);
@@ -122,6 +127,7 @@ public class CompletedSnapshotStore {
         Optional<CompletedSnapshot> subsume =
                 subsume(
                         completedSnapshots,
+                        maxNumberOfSnapshotsToRetain,
                         completedSnapshot -> {
                             remove(
                                     completedSnapshot.getTableBucket(),
@@ -148,6 +154,7 @@ public class CompletedSnapshotStore {
 
     private static Optional<CompletedSnapshot> subsume(
             Deque<CompletedSnapshot> snapshots,
+            int numRetain,
             SubsumeAction subsumeAction,
             CanSubsume canSubsume) {
         if (snapshots.isEmpty()) {
@@ -157,8 +164,7 @@ public class CompletedSnapshotStore {
         CompletedSnapshot latest = snapshots.peekLast();
         Optional<CompletedSnapshot> lastSubsumedSnapshot = Optional.empty();
         Iterator<CompletedSnapshot> iterator = snapshots.iterator();
-        // max num retain is 1.
-        while (snapshots.size() > 1 && iterator.hasNext()) {
+        while (snapshots.size() > numRetain && iterator.hasNext()) {
             CompletedSnapshot next = iterator.next();
             if (canSubsume(next, latest, canSubsume)) {
                 // always return the subsumed snapshot with larger snapshot id.

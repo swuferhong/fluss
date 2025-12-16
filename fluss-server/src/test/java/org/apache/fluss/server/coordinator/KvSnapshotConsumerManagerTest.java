@@ -28,6 +28,7 @@ import org.apache.fluss.server.metrics.group.TestingMetricGroups;
 import org.apache.fluss.server.zk.NOPErrorHandler;
 import org.apache.fluss.server.zk.ZooKeeperClient;
 import org.apache.fluss.server.zk.ZooKeeperExtension;
+import org.apache.fluss.server.zk.data.BucketSnapshot;
 import org.apache.fluss.server.zk.data.KvSnapshotConsumer;
 import org.apache.fluss.testutils.common.AllCallbackWrapper;
 import org.apache.fluss.testutils.common.ManuallyTriggeredScheduledExecutorService;
@@ -108,7 +109,7 @@ public class KvSnapshotConsumerManagerTest {
     }
 
     @BeforeEach
-    void beforeEach() {
+    void beforeEach() throws Exception {
         initCoordinatorContext();
         Configuration conf = new Configuration();
         // set a huge expiration check interval to avoid expiration check.
@@ -124,6 +125,7 @@ public class KvSnapshotConsumerManagerTest {
                         manualClock,
                         TestingMetricGroups.COORDINATOR_METRICS);
         kvSnapshotConsumerManager.start();
+        initialZookeeper();
     }
 
     @AfterEach
@@ -131,26 +133,34 @@ public class KvSnapshotConsumerManagerTest {
         ZOO_KEEPER_EXTENSION_WRAPPER.getCustomExtension().cleanupRoot();
     }
 
+    private static void initialZookeeper() throws Exception {
+        List<TableBucket> tableBuckets = Arrays.asList(t0b0, t0b1, t1p0b0, t1p0b1, t1p1b0);
+        for (TableBucket tb : tableBuckets) {
+            zookeeperClient.registerTableBucketSnapshot(
+                    tb, new BucketSnapshot(0L, 0L, "test-path"));
+        }
+    }
+
     @Test
     void testInitialize() throws Exception {
         assertThat(
                         snapshotConsumerNotExists(
                                 Arrays.asList(
-                                        new ConsumeKvSnapshotForBucket(t0b0, 10L),
-                                        new ConsumeKvSnapshotForBucket(t0b1, 20L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b0, 30L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b1, 40L),
-                                        new ConsumeKvSnapshotForBucket(t1p1b0, 50L))))
+                                        new ConsumeKvSnapshotForBucket(t0b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t0b1, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b1, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p1b0, 0L))))
                 .isTrue();
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(0);
 
         // test initialize from zookeeper when coordinator is started.
         KvSnapshotConsumer consumer = new KvSnapshotConsumer(1000L);
-        register(consumer, new ConsumeKvSnapshotForBucket(t0b0, 10L));
-        register(consumer, new ConsumeKvSnapshotForBucket(t0b1, 20L));
-        register(consumer, new ConsumeKvSnapshotForBucket(t1p0b0, 30L));
-        register(consumer, new ConsumeKvSnapshotForBucket(t1p0b1, 40L));
-        register(consumer, new ConsumeKvSnapshotForBucket(t1p1b0, 50L));
+        register(consumer, new ConsumeKvSnapshotForBucket(t0b0, 0L));
+        register(consumer, new ConsumeKvSnapshotForBucket(t0b1, 0L));
+        register(consumer, new ConsumeKvSnapshotForBucket(t1p0b0, 0L));
+        register(consumer, new ConsumeKvSnapshotForBucket(t1p0b1, 0L));
+        register(consumer, new ConsumeKvSnapshotForBucket(t1p1b0, 0L));
         zookeeperClient.registerKvSnapshotConsumer("consumer1", consumer);
 
         kvSnapshotConsumerManager.initialize();
@@ -158,11 +168,11 @@ public class KvSnapshotConsumerManagerTest {
         assertThat(
                         snapshotConsumerExists(
                                 Arrays.asList(
-                                        new ConsumeKvSnapshotForBucket(t0b0, 10L),
-                                        new ConsumeKvSnapshotForBucket(t0b1, 20L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b0, 30L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b1, 40L),
-                                        new ConsumeKvSnapshotForBucket(t1p1b0, 50L))))
+                                        new ConsumeKvSnapshotForBucket(t0b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t0b1, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b1, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p1b0, 0L))))
                 .isTrue();
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(5);
 
@@ -170,11 +180,11 @@ public class KvSnapshotConsumerManagerTest {
         Map<Long, Long[]> tableIdToSnapshots = new HashMap<>();
         Map<Long, Set<Long>> tableIdToPartitions = new HashMap<>();
         Map<Long, Long[]> partitionIdToSnapshots = new HashMap<>();
-        tableIdToSnapshots.put(DATA1_TABLE_ID_PK, new Long[] {10L, 20L, -1L});
+        tableIdToSnapshots.put(DATA1_TABLE_ID_PK, new Long[] {0L, 0L, -1L});
         tableIdToPartitions.put(
                 PARTITION_TABLE_ID, new HashSet<>(Arrays.asList(PARTITION_ID_1, PARTITION_ID_2)));
-        partitionIdToSnapshots.put(PARTITION_ID_1, new Long[] {30L, 40L, -1L});
-        partitionIdToSnapshots.put(PARTITION_ID_2, new Long[] {50L, -1L, -1L});
+        partitionIdToSnapshots.put(PARTITION_ID_1, new Long[] {0L, 0L, -1L});
+        partitionIdToSnapshots.put(PARTITION_ID_2, new Long[] {0L, -1L, -1L});
         KvSnapshotConsumer expectedConsumer =
                 new KvSnapshotConsumer(
                         1000L, tableIdToSnapshots, tableIdToPartitions, partitionIdToSnapshots);
@@ -185,65 +195,61 @@ public class KvSnapshotConsumerManagerTest {
 
     @Test
     void testRegisterAndUnregister() throws Exception {
-        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = new HashMap<>();
-        tableIdToRegisterBucket.put(
-                DATA1_TABLE_ID_PK,
-                Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t0b0, 10L),
-                        new ConsumeKvSnapshotForBucket(t0b1, 20L)));
-        tableIdToRegisterBucket.put(
-                PARTITION_TABLE_ID,
-                Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t1p0b0, 30L),
-                        new ConsumeKvSnapshotForBucket(t1p0b1, 40L),
-                        new ConsumeKvSnapshotForBucket(t1p1b0, 50L)));
+        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = initRegisterBuckets();
         register("consumer1", tableIdToRegisterBucket);
+
+        // first register snapshot to zk.
+        zookeeperClient.registerTableBucketSnapshot(
+                t1p0b0, new BucketSnapshot(1L, 10L, "test-path"));
+        zookeeperClient.registerTableBucketSnapshot(
+                t1p0b1, new BucketSnapshot(1L, 10L, "test-path"));
 
         tableIdToRegisterBucket = new HashMap<>();
         tableIdToRegisterBucket.put(
                 PARTITION_TABLE_ID,
                 Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t1p0b0, 31L),
-                        new ConsumeKvSnapshotForBucket(t1p0b1, 41L)));
+                        new ConsumeKvSnapshotForBucket(t1p0b0, 1L),
+                        new ConsumeKvSnapshotForBucket(t1p0b1, 1L)));
         register("consumer2", tableIdToRegisterBucket);
 
         assertThat(
                         snapshotConsumerExists(
                                 Arrays.asList(
-                                        new ConsumeKvSnapshotForBucket(t0b0, 10L),
-                                        new ConsumeKvSnapshotForBucket(t0b1, 20L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b0, 30L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b1, 40L),
-                                        new ConsumeKvSnapshotForBucket(t1p1b0, 50L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b0, 31L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b1, 41L))))
+                                        new ConsumeKvSnapshotForBucket(t0b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t0b1, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b0, 0),
+                                        new ConsumeKvSnapshotForBucket(t1p0b1, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p1b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b0, 1L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b1, 1L))))
                 .isTrue();
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(7);
         assertThat(kvSnapshotConsumerManager.getConsumerCount()).isEqualTo(2);
 
         // update consumer register.
         tableIdToRegisterBucket = new HashMap<>();
+        zookeeperClient.registerTableBucketSnapshot(t0b0, new BucketSnapshot(1L, 10L, "test-path"));
         tableIdToRegisterBucket.put(
                 DATA1_TABLE_ID_PK,
-                Collections.singletonList(new ConsumeKvSnapshotForBucket(t0b0, 11L)));
+                Collections.singletonList(new ConsumeKvSnapshotForBucket(t0b0, 1L)));
         register("consumer1", tableIdToRegisterBucket);
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(7);
 
         // new insert.
         tableIdToRegisterBucket = new HashMap<>();
+        TableBucket newTableBucket = new TableBucket(DATA1_TABLE_ID_PK, 2);
+
+        zookeeperClient.registerTableBucketSnapshot(
+                newTableBucket, new BucketSnapshot(1L, 10L, "test-path"));
         tableIdToRegisterBucket.put(
                 DATA1_TABLE_ID_PK,
-                Collections.singletonList(
-                        new ConsumeKvSnapshotForBucket(
-                                new TableBucket(DATA1_TABLE_ID_PK, 2), 60L)));
+                Collections.singletonList(new ConsumeKvSnapshotForBucket(newTableBucket, 1L)));
         register("consumer1", tableIdToRegisterBucket);
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(8);
 
         // unregister
         Map<Long, List<TableBucket>> tableIdToUnregisterBucket = new HashMap<>();
-        tableIdToUnregisterBucket.put(
-                DATA1_TABLE_ID_PK,
-                Collections.singletonList(new TableBucket(DATA1_TABLE_ID_PK, 2)));
+        tableIdToUnregisterBucket.put(DATA1_TABLE_ID_PK, Collections.singletonList(newTableBucket));
         unregister("consumer1", tableIdToUnregisterBucket);
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(7);
 
@@ -259,11 +265,11 @@ public class KvSnapshotConsumerManagerTest {
         Map<Long, Long[]> tableIdToSnapshots = new HashMap<>();
         Map<Long, Set<Long>> tableIdToPartitions = new HashMap<>();
         Map<Long, Long[]> partitionIdToSnapshots = new HashMap<>();
-        tableIdToSnapshots.put(DATA1_TABLE_ID_PK, new Long[] {11L, 20L, -1L});
+        tableIdToSnapshots.put(DATA1_TABLE_ID_PK, new Long[] {1L, 0L, -1L});
         tableIdToPartitions.put(
                 PARTITION_TABLE_ID, new HashSet<>(Arrays.asList(PARTITION_ID_1, PARTITION_ID_2)));
-        partitionIdToSnapshots.put(PARTITION_ID_1, new Long[] {30L, 40L, -1L});
-        partitionIdToSnapshots.put(PARTITION_ID_2, new Long[] {50L, -1L, -1L});
+        partitionIdToSnapshots.put(PARTITION_ID_1, new Long[] {0L, 0L, -1L});
+        partitionIdToSnapshots.put(PARTITION_ID_2, new Long[] {0L, -1L, -1L});
         KvSnapshotConsumer expectedConsumer =
                 new KvSnapshotConsumer(
                         manualClock.milliseconds() + 1000L,
@@ -279,7 +285,7 @@ public class KvSnapshotConsumerManagerTest {
         tableIdToPartitions = new HashMap<>();
         partitionIdToSnapshots = new HashMap<>();
         tableIdToPartitions.put(PARTITION_TABLE_ID, Collections.singleton(PARTITION_ID_1));
-        partitionIdToSnapshots.put(PARTITION_ID_1, new Long[] {31L, 41L, -1L});
+        partitionIdToSnapshots.put(PARTITION_ID_1, new Long[] {1L, 1L, -1L});
         KvSnapshotConsumer expectedConsumer2 =
                 new KvSnapshotConsumer(
                         manualClock.milliseconds() + 1000L,
@@ -293,18 +299,7 @@ public class KvSnapshotConsumerManagerTest {
 
     @Test
     void testUnregisterAll() throws Exception {
-        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = new HashMap<>();
-        tableIdToRegisterBucket.put(
-                DATA1_TABLE_ID_PK,
-                Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t0b0, 10L),
-                        new ConsumeKvSnapshotForBucket(t0b1, 20L)));
-        tableIdToRegisterBucket.put(
-                PARTITION_TABLE_ID,
-                Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t1p0b0, 30L),
-                        new ConsumeKvSnapshotForBucket(t1p0b1, 40L),
-                        new ConsumeKvSnapshotForBucket(t1p1b0, 50L)));
+        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = initRegisterBuckets();
         register("consumer1", tableIdToRegisterBucket);
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(5);
         assertThat(kvSnapshotConsumerManager.getConsumerCount()).isEqualTo(1);
@@ -323,54 +318,48 @@ public class KvSnapshotConsumerManagerTest {
 
     @Test
     void testClear() throws Exception {
-        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = new HashMap<>();
-        tableIdToRegisterBucket.put(
-                DATA1_TABLE_ID_PK,
-                Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t0b0, 10L),
-                        new ConsumeKvSnapshotForBucket(t0b1, 20L)));
-        tableIdToRegisterBucket.put(
-                PARTITION_TABLE_ID,
-                Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t1p0b0, 30L),
-                        new ConsumeKvSnapshotForBucket(t1p0b1, 40L),
-                        new ConsumeKvSnapshotForBucket(t1p1b0, 50L)));
+        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = initRegisterBuckets();
         register("consumer1", tableIdToRegisterBucket);
 
+        // first register snapshot to zk.
+        zookeeperClient.registerTableBucketSnapshot(
+                t1p0b0, new BucketSnapshot(1L, 10L, "test-path"));
+        zookeeperClient.registerTableBucketSnapshot(
+                t1p0b1, new BucketSnapshot(1L, 10L, "test-path"));
         tableIdToRegisterBucket = new HashMap<>();
         tableIdToRegisterBucket.put(
                 PARTITION_TABLE_ID,
                 Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t0b0, 10L), // same ref.
-                        new ConsumeKvSnapshotForBucket(t1p0b0, 31L),
-                        new ConsumeKvSnapshotForBucket(t1p0b1, 41L)));
+                        new ConsumeKvSnapshotForBucket(t0b0, 0L), // same ref.
+                        new ConsumeKvSnapshotForBucket(t1p0b0, 1L),
+                        new ConsumeKvSnapshotForBucket(t1p0b1, 1L)));
         register("consumer2", tableIdToRegisterBucket);
 
         assertThat(
                         snapshotConsumerExists(
                                 Arrays.asList(
-                                        new ConsumeKvSnapshotForBucket(t0b0, 10L),
-                                        new ConsumeKvSnapshotForBucket(t0b1, 20L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b0, 30L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b1, 40L),
-                                        new ConsumeKvSnapshotForBucket(t1p1b0, 50L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b0, 31L),
-                                        new ConsumeKvSnapshotForBucket(t1p0b1, 41L))))
+                                        new ConsumeKvSnapshotForBucket(t0b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t0b1, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b1, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p1b0, 0L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b0, 1L),
+                                        new ConsumeKvSnapshotForBucket(t1p0b1, 1L))))
                 .isTrue();
-        assertThat(kvSnapshotConsumerManager.getRefCount(new ConsumeKvSnapshotForBucket(t0b0, 10L)))
+        assertThat(kvSnapshotConsumerManager.getRefCount(new ConsumeKvSnapshotForBucket(t0b0, 0L)))
                 .isEqualTo(2);
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(8);
         assertThat(kvSnapshotConsumerManager.getConsumerCount()).isEqualTo(2);
 
         kvSnapshotConsumerManager.clear("consumer1");
-        assertThat(kvSnapshotConsumerManager.getRefCount(new ConsumeKvSnapshotForBucket(t0b0, 10L)))
+        assertThat(kvSnapshotConsumerManager.getRefCount(new ConsumeKvSnapshotForBucket(t0b0, 0L)))
                 .isEqualTo(1);
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(3);
         assertThat(kvSnapshotConsumerManager.getConsumerCount()).isEqualTo(1);
         assertThat(zookeeperClient.getKvSnapshotConsumer("consumer1")).isEmpty();
 
         kvSnapshotConsumerManager.clear("consumer2");
-        assertThat(kvSnapshotConsumerManager.getRefCount(new ConsumeKvSnapshotForBucket(t0b0, 10L)))
+        assertThat(kvSnapshotConsumerManager.getRefCount(new ConsumeKvSnapshotForBucket(t0b0, 0L)))
                 .isEqualTo(0);
         assertThat(kvSnapshotConsumerManager.getConsumedBucketCount()).isEqualTo(0);
         assertThat(kvSnapshotConsumerManager.getConsumerCount()).isEqualTo(0);
@@ -382,29 +371,22 @@ public class KvSnapshotConsumerManagerTest {
     @Test
     void testExpireConsumers() throws Exception {
         // test consumer expire by expire thread.
-        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = new HashMap<>();
-        tableIdToRegisterBucket.put(
-                DATA1_TABLE_ID_PK,
-                Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t0b0, 10L),
-                        new ConsumeKvSnapshotForBucket(t0b1, 20L)));
-        tableIdToRegisterBucket.put(
-                PARTITION_TABLE_ID,
-                Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t1p0b0, 30L),
-                        new ConsumeKvSnapshotForBucket(t1p0b1, 40L),
-                        new ConsumeKvSnapshotForBucket(t1p1b0, 50L)));
+        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = initRegisterBuckets();
 
         // expire after 1000ms.
         kvSnapshotConsumerManager.register("consumer1", 1000L, tableIdToRegisterBucket);
 
         tableIdToRegisterBucket = new HashMap<>();
+        zookeeperClient.registerTableBucketSnapshot(
+                t1p0b0, new BucketSnapshot(1L, 10L, "test-path"));
+        zookeeperClient.registerTableBucketSnapshot(
+                t1p0b1, new BucketSnapshot(1L, 10L, "test-path"));
         tableIdToRegisterBucket.put(
                 PARTITION_TABLE_ID,
                 Arrays.asList(
-                        new ConsumeKvSnapshotForBucket(t0b0, 10L), // same ref.
-                        new ConsumeKvSnapshotForBucket(t1p0b0, 31L),
-                        new ConsumeKvSnapshotForBucket(t1p0b1, 41L)));
+                        new ConsumeKvSnapshotForBucket(t0b0, 0L), // same ref.
+                        new ConsumeKvSnapshotForBucket(t1p0b0, 1L),
+                        new ConsumeKvSnapshotForBucket(t1p0b1, 1L)));
         // expire after 2000ms.
         kvSnapshotConsumerManager.register("consumer2", 2000L, tableIdToRegisterBucket);
 
@@ -432,6 +414,18 @@ public class KvSnapshotConsumerManagerTest {
         assertThat(zookeeperClient.getKvSnapshotConsumer("consumer2")).isNotPresent();
     }
 
+    @Test
+    void registerWithNotExistSnapshotId() throws Exception {
+        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = new HashMap<>();
+        tableIdToRegisterBucket.put(
+                DATA1_TABLE_ID_PK,
+                Arrays.asList(
+                        new ConsumeKvSnapshotForBucket(t0b0, 1000L),
+                        new ConsumeKvSnapshotForBucket(t0b1, 1000L)));
+        assertThat(kvSnapshotConsumerManager.register("consumer1", 1000L, tableIdToRegisterBucket))
+                .contains(t0b0);
+    }
+
     private void initCoordinatorContext() {
         coordinatorContext = new CoordinatorContext();
         coordinatorContext.setLiveTabletServers(createServers(Arrays.asList(0, 1, 2)));
@@ -446,6 +440,22 @@ public class KvSnapshotConsumerManagerTest {
                 PARTITION_TABLE_INFO.getTableId(), PARTITION_TABLE_INFO.getTablePath());
         coordinatorContext.putPartition(PARTITION_ID_1, PARTITION_TABLE_PATH_1);
         coordinatorContext.putPartition(PARTITION_ID_2, PARTITION_TABLE_PATH_2);
+    }
+
+    private Map<Long, List<ConsumeKvSnapshotForBucket>> initRegisterBuckets() {
+        Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket = new HashMap<>();
+        tableIdToRegisterBucket.put(
+                DATA1_TABLE_ID_PK,
+                Arrays.asList(
+                        new ConsumeKvSnapshotForBucket(t0b0, 0L),
+                        new ConsumeKvSnapshotForBucket(t0b1, 0L)));
+        tableIdToRegisterBucket.put(
+                PARTITION_TABLE_ID,
+                Arrays.asList(
+                        new ConsumeKvSnapshotForBucket(t1p0b0, 0L),
+                        new ConsumeKvSnapshotForBucket(t1p0b1, 0L),
+                        new ConsumeKvSnapshotForBucket(t1p1b0, 0L)));
+        return tableIdToRegisterBucket;
     }
 
     private boolean snapshotConsumerNotExists(List<ConsumeKvSnapshotForBucket> bucketList) {

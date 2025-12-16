@@ -94,7 +94,11 @@ abstract class FlinkTableSourceITCase extends AbstractTestBase {
                     .setClusterConf(
                             new Configuration()
                                     // set snapshot interval to 1s for testing purposes
-                                    .set(ConfigOptions.KV_SNAPSHOT_INTERVAL, Duration.ofSeconds(1)))
+                                    .set(ConfigOptions.KV_SNAPSHOT_INTERVAL, Duration.ofSeconds(1))
+                                    // not to clean snapshots for test purpose
+                                    .set(
+                                            ConfigOptions.KV_MAX_RETAINED_SNAPSHOTS,
+                                            Integer.MAX_VALUE))
                     .setNumOfTabletServers(3)
                     .setClock(CLOCK)
                     .build();

@@ -21,6 +21,7 @@ import org.apache.fluss.annotation.PublicEvolving;
 import org.apache.fluss.client.metadata.KvSnapshotMetadata;
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.client.metadata.RegisterKvSnapshotResult;
 import org.apache.fluss.cluster.ServerNode;
 import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.cluster.AlterConfig;
@@ -419,8 +420,9 @@ public interface Admin extends AutoCloseable {
      *
      * @param consumerId the consumer id.
      * @param consumeBuckets the tableBuckets to consume, a map from TableBucket to kvSnapshotId.
+     * @return the result of registering kv snapshot consumer.
      */
-    CompletableFuture<Void> registerKvSnapshotConsumer(
+    CompletableFuture<RegisterKvSnapshotResult> registerKvSnapshotConsumer(
             String consumerId, Map<TableBucket, Long> consumeBuckets);
 
     /**

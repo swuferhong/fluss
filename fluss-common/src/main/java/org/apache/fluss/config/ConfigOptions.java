@@ -1462,6 +1462,12 @@ public class ConfigOptions {
                     .withDescription(
                             "The number of threads the server uses to transfer (download and upload) kv snapshot files.");
 
+    public static final ConfigOption<Integer> KV_MAX_RETAINED_SNAPSHOTS =
+            key("kv.snapshot.num-retained")
+                    .intType()
+                    .defaultValue(1)
+                    .withDescription("The maximum number of completed snapshots to retain.");
+
     public static final ConfigOption<Duration> KV_SNAPSHOT_CONSUMER_EXPIRATION_CHECK_INTERVAL =
             key("kv.snapshot.consumer-expiration-check-interval")
                     .durationType()

@@ -21,6 +21,7 @@ import org.apache.fluss.client.metadata.KvSnapshotMetadata;
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.client.metadata.MetadataUpdater;
+import org.apache.fluss.client.metadata.RegisterKvSnapshotResult;
 import org.apache.fluss.client.utils.ClientRpcMessageUtils;
 import org.apache.fluss.cluster.Cluster;
 import org.apache.fluss.cluster.ServerNode;
@@ -387,7 +388,7 @@ public class FlussAdmin implements Admin {
     }
 
     @Override
-    public CompletableFuture<Void> registerKvSnapshotConsumer(
+    public CompletableFuture<RegisterKvSnapshotResult> registerKvSnapshotConsumer(
             String consumerId, Map<TableBucket, Long> consumeBuckets) {
         if (consumeBuckets.isEmpty()) {
             throw new IllegalArgumentException("consumeBuckets is empty");
@@ -400,7 +401,7 @@ public class FlussAdmin implements Admin {
         return gateway.registerKvSnapshotConsumer(
                         makeRegisterKvSnapshotConsumerRequest(
                                 consumerId, consumeBuckets, expirationTime))
-                .thenApply(r -> null);
+                .thenApply(ClientRpcMessageUtils::toRegisterKvSnapshotResult);
     }
 
     @Override

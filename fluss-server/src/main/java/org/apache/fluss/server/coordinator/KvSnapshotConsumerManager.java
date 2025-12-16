@@ -26,10 +26,12 @@ import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metrics.MetricNames;
 import org.apache.fluss.server.metrics.group.CoordinatorMetricGroup;
 import org.apache.fluss.server.zk.ZooKeeperClient;
+import org.apache.fluss.server.zk.data.BucketSnapshot;
 import org.apache.fluss.server.zk.data.KvSnapshotConsumer;
 import org.apache.fluss.utils.MapUtils;
 import org.apache.fluss.utils.clock.Clock;
 import org.apache.fluss.utils.concurrent.ExecutorThreadFactory;
+import org.apache.fluss.utils.types.Tuple2;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +39,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -148,16 +151,28 @@ public class KvSnapshotConsumerManager {
                                 || refCount.get(consumeKvSnapshotForBucket).get() <= 0);
     }
 
-    public void register(
+    /**
+     * Register kv snapshot consumer.
+     *
+     * @param consumerId the consumer id
+     * @param expirationTime the expiration time
+     * @param tableIdToRegisterBucket the table id to register bucket
+     * @return the set of table buckets that failed to register
+     */
+    public Set<TableBucket> register(
             String consumerId,
             long expirationTime,
             Map<Long, List<ConsumeKvSnapshotForBucket>> tableIdToRegisterBucket)
             throws Exception {
         ReadWriteLock lock =
                 consumerLocks.computeIfAbsent(consumerId, k -> new ReentrantReadWriteLock());
-        inWriteLock(
+        return inWriteLock(
                 lock,
                 () -> {
+                    // To record the failed table buckets such as the consumed kv snapshotId not
+                    // exists.
+                    Set<TableBucket> failedRegisterTableBuckets = new HashSet<>();
+
                     boolean update = consumers.containsKey(consumerId);
                     KvSnapshotConsumer consumer;
                     if (!update) {
@@ -180,11 +195,28 @@ public class KvSnapshotConsumerManager {
                         int numBuckets = tableInfo.getNumBuckets();
                         List<ConsumeKvSnapshotForBucket> buckets = entry.getValue();
                         for (ConsumeKvSnapshotForBucket bucket : buckets) {
+
+                            TableBucket tableBucket = bucket.getTableBucket();
+                            long kvSnapshotId = bucket.getKvSnapshotId();
+                            try {
+                                boolean snapshotExists =
+                                        isSnapshotExists(tableBucket, kvSnapshotId);
+                                if (!snapshotExists) {
+                                    failedRegisterTableBuckets.add(tableBucket);
+                                    continue;
+                                }
+                            } catch (Exception e) {
+                                LOG.error(
+                                        "Failed to check snapshotExists for tableBucket when register kv "
+                                                + "snapshot consumer {}.",
+                                        tableBucket,
+                                        e);
+                                failedRegisterTableBuckets.add(tableBucket);
+                                continue;
+                            }
+
                             boolean isUpdate =
-                                    consumer.registerBucket(
-                                            bucket.getTableBucket(),
-                                            bucket.getKvSnapshotId(),
-                                            numBuckets);
+                                    consumer.registerBucket(tableBucket, kvSnapshotId, numBuckets);
                             if (!isUpdate) {
                                 consumedBucketCount.getAndIncrement();
                                 inWriteLock(
@@ -203,6 +235,8 @@ public class KvSnapshotConsumerManager {
                     } else {
                         zkClient.registerKvSnapshotConsumer(consumerId, consumer);
                     }
+
+                    return failedRegisterTableBuckets;
                 });
     }
 
@@ -218,7 +252,6 @@ public class KvSnapshotConsumerManager {
                 lock,
                 () -> {
                     KvSnapshotConsumer consumer = consumers.get(consumerId);
-
                     if (consumer == null) {
                         return;
                     }
@@ -233,10 +266,18 @@ public class KvSnapshotConsumerManager {
                                 inWriteLock(
                                         refCountLock,
                                         () -> {
-                                            refCount.get(
-                                                            new ConsumeKvSnapshotForBucket(
-                                                                    bucket, snapshotId))
-                                                    .getAndDecrement();
+                                            ConsumeKvSnapshotForBucket consumeKvSnapshotForBucket =
+                                                    new ConsumeKvSnapshotForBucket(
+                                                            bucket, snapshotId);
+                                            AtomicInteger atomicInteger =
+                                                    refCount.get(consumeKvSnapshotForBucket);
+                                            if (atomicInteger != null) {
+                                                int decrementAndGet =
+                                                        atomicInteger.decrementAndGet();
+                                                if (decrementAndGet <= 0) {
+                                                    refCount.remove(consumeKvSnapshotForBucket);
+                                                }
+                                            }
                                         });
                             }
                         }
@@ -339,9 +380,12 @@ public class KvSnapshotConsumerManager {
                 inWriteLock(
                         refCountLock,
                         () -> {
-                            int decrementAndGet = refCount.get(bucket).decrementAndGet();
-                            if (decrementAndGet <= 0) {
-                                refCount.remove(bucket);
+                            AtomicInteger atomicInteger = refCount.get(bucket);
+                            if (atomicInteger != null) {
+                                int decrementAndGet = atomicInteger.getAndDecrement();
+                                if (decrementAndGet <= 0) {
+                                    refCount.remove(bucket);
+                                }
                             }
                         });
                 consumedBucketCount.getAndDecrement();
@@ -364,9 +408,12 @@ public class KvSnapshotConsumerManager {
                     inWriteLock(
                             refCountLock,
                             () -> {
-                                int decrementAndGet = refCount.get(bucket).decrementAndGet();
-                                if (decrementAndGet <= 0) {
-                                    refCount.remove(bucket);
+                                AtomicInteger atomicInteger = refCount.get(bucket);
+                                if (atomicInteger != null) {
+                                    int decrementAndGet = atomicInteger.decrementAndGet();
+                                    if (decrementAndGet <= 0) {
+                                        refCount.remove(bucket);
+                                    }
                                 }
                             });
                     consumedBucketCount.getAndDecrement();
@@ -397,6 +444,17 @@ public class KvSnapshotConsumerManager {
         // TODO register as table or bucket level.
         coordinatorMetricGroup.gauge(
                 MetricNames.CONSUMED_KV_SNAPSHOT_COUNT, this::getConsumedBucketCount);
+    }
+
+    private boolean isSnapshotExists(TableBucket tableBucket, long snapshotId) throws Exception {
+        List<Tuple2<BucketSnapshot, Long>> allSnapshotAndIds =
+                zkClient.getTableBucketAllSnapshotAndIds(tableBucket);
+        for (Tuple2<BucketSnapshot, Long> snapshotAndId : allSnapshotAndIds) {
+            if (snapshotAndId.f1 == snapshotId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @VisibleForTesting

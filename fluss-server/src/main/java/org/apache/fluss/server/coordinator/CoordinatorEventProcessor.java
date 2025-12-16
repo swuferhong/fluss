@@ -44,6 +44,7 @@ import org.apache.fluss.rpc.messages.CommitKvSnapshotResponse;
 import org.apache.fluss.rpc.messages.CommitLakeTableSnapshotResponse;
 import org.apache.fluss.rpc.messages.CommitRemoteLogManifestResponse;
 import org.apache.fluss.rpc.messages.ControlledShutdownResponse;
+import org.apache.fluss.rpc.messages.PbBucket;
 import org.apache.fluss.rpc.messages.PbCommitLakeTableSnapshotRespForTable;
 import org.apache.fluss.rpc.messages.RegisterKvSnapshotConsumerResponse;
 import org.apache.fluss.rpc.messages.UnregisterKvSnapshotConsumerResponse;
@@ -210,6 +211,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
 
         this.completedSnapshotStoreManager =
                 new CompletedSnapshotStoreManager(
+                        conf.getInt(ConfigOptions.KV_MAX_RETAINED_SNAPSHOTS),
                         ioExecutor,
                         zooKeeperClient,
                         coordinatorMetricGroup,
@@ -1346,10 +1348,24 @@ public class CoordinatorEventProcessor implements EventProcessor {
     private RegisterKvSnapshotConsumerResponse tryProcessRegisterKvSnapshotConsumer(
             RegisterKvSnapshotConsumerEvent event) throws Exception {
         RegisterKvSnapshotConsumerResponse response = new RegisterKvSnapshotConsumerResponse();
-        kvSnapshotConsumerManager.register(
-                event.getConsumerId(),
-                event.getExpirationTime(),
-                event.getTableIdToRegisterBucket());
+        Set<TableBucket> failedTableBuckets =
+                kvSnapshotConsumerManager.register(
+                        event.getConsumerId(),
+                        event.getExpirationTime(),
+                        event.getTableIdToRegisterBucket());
+
+        Map<Long, List<PbBucket>> pbFailedTables = new HashMap<>();
+        for (TableBucket tb : failedTableBuckets) {
+            PbBucket pbBucket = new PbBucket().setBucketId(tb.getBucket());
+            if (tb.getPartitionId() != null) {
+                pbBucket.setPartitionId(tb.getPartitionId());
+            }
+            pbFailedTables.computeIfAbsent(tb.getTableId(), k -> new ArrayList<>()).add(pbBucket);
+        }
+
+        for (Map.Entry<Long, List<PbBucket>> entry : pbFailedTables.entrySet()) {
+            response.addFailedTable().setTableId(entry.getKey()).addAllBuckets(entry.getValue());
+        }
         return response;
     }
 

@@ -356,35 +356,7 @@ public class FlinkSourceEnumerator
 
     private List<SourceSplitBase> initNonPartitionedSplits() {
         if (hasPrimaryKey && startingOffsetsInitializer instanceof SnapshotOffsetsInitializer) {
-            // get the table snapshot info
-            final KvSnapshots kvSnapshots;
-            try {
-                kvSnapshots = flussAdmin.getLatestKvSnapshots(tablePath).get();
-
-                Map<TableBucket, Long> consumeBuckets = new HashMap<>();
-                for (Integer bucketId : kvSnapshots.getBucketIds()) {
-                    TableBucket tb =
-                            new TableBucket(
-                                    kvSnapshots.getTableId(),
-                                    kvSnapshots.getPartitionId(),
-                                    bucketId);
-                    OptionalLong snapshotIdOpt = kvSnapshots.getSnapshotId(bucketId);
-                    if (!ignoreTableBucket(tb) && snapshotIdOpt.isPresent()) {
-                        consumeBuckets.put(tb, snapshotIdOpt.getAsLong());
-                    }
-                }
-
-                if (!consumeBuckets.isEmpty()) {
-                    flussAdmin
-                            .registerKvSnapshotConsumer(kvSnapshotConsumerId, consumeBuckets)
-                            .get();
-                }
-            } catch (Exception e) {
-                throw new FlinkRuntimeException(
-                        String.format("Failed to get table snapshot for %s", tablePath),
-                        ExceptionUtils.stripCompletionException(e));
-            }
-            return getSnapshotAndLogSplits(kvSnapshots, null);
+            return getSnapshotAndLogSplits(getLatestKvSnapshotsAndRegister(null), null);
         } else {
             return getLogSplit(null, null);
         }
@@ -557,39 +529,80 @@ public class FlinkSourceEnumerator
         List<SourceSplitBase> splits = new ArrayList<>();
         for (Partition partition : newPartitions) {
             String partitionName = partition.getPartitionName();
-            // get the table snapshot info
-            final KvSnapshots kvSnapshots;
-            try {
-                kvSnapshots = flussAdmin.getLatestKvSnapshots(tablePath, partitionName).get();
+            splits.addAll(
+                    getSnapshotAndLogSplits(
+                            getLatestKvSnapshotsAndRegister(partitionName), partitionName));
+        }
+        return splits;
+    }
+
+    private KvSnapshots getLatestKvSnapshotsAndRegister(@Nullable String partitionName) {
+        long tableId;
+        Long partitionId;
+        Map<Integer, Long> snapshotIds = new HashMap<>();
+        Map<Integer, Long> logOffsets = new HashMap<>();
+
+        // retry to get the latest kv snapshots and register kvSnapshot consumer util all buckets
+        // register success. The reason is that getLatestKvSnapshots and registerKvSnapshotConsumer
+        // are not atomic operations, the latest kv snapshot obtained via get may become outdated by
+        // the time it is passed to register. Therefore, this logic must implement a retry
+        // mechanism: the failedTableBucketSet in the RegisterKvSnapshotResult returned by
+        // registerKvSnapshotConsumer must be retried repeatedly until all buckets are successfully
+        // registered.
+        try {
+            Set<TableBucket> remainingTableBuckets;
+            do {
+                KvSnapshots kvSnapshots = getLatestKvSnapshots(partitionName);
+                remainingTableBuckets = new HashSet<>(kvSnapshots.getTableBuckets());
+
+                tableId = kvSnapshots.getTableId();
+                partitionId = kvSnapshots.getPartitionId();
 
                 Map<TableBucket, Long> consumeBuckets = new HashMap<>();
-                for (Integer bucketId : kvSnapshots.getBucketIds()) {
-                    TableBucket tb =
-                            new TableBucket(
-                                    kvSnapshots.getTableId(),
-                                    kvSnapshots.getPartitionId(),
-                                    bucketId);
-                    OptionalLong snapshotIdOpt = kvSnapshots.getSnapshotId(bucketId);
+                for (TableBucket tb : remainingTableBuckets) {
+                    int bucket = tb.getBucket();
+                    OptionalLong snapshotIdOpt = kvSnapshots.getSnapshotId(bucket);
+                    OptionalLong logOffsetOpt = kvSnapshots.getLogOffset(bucket);
+                    if (snapshotIdOpt.isPresent() && logOffsetOpt.isPresent()) {
+                        snapshotIds.put(bucket, snapshotIdOpt.getAsLong());
+                        logOffsets.put(bucket, logOffsetOpt.getAsLong());
+                    }
+
                     if (!ignoreTableBucket(tb) && snapshotIdOpt.isPresent()) {
                         consumeBuckets.put(tb, snapshotIdOpt.getAsLong());
                     }
                 }
 
                 if (!consumeBuckets.isEmpty()) {
-                    flussAdmin
-                            .registerKvSnapshotConsumer(kvSnapshotConsumerId, consumeBuckets)
-                            .get();
+                    remainingTableBuckets =
+                            flussAdmin
+                                    .registerKvSnapshotConsumer(
+                                            kvSnapshotConsumerId, consumeBuckets)
+                                    .get()
+                                    .getFailedTableBucketSet();
+                    if (!remainingTableBuckets.isEmpty()) {
+                        LOG.info(
+                                "Failed to register kv snapshot consumer for table {}: {}. Retry to register",
+                                tablePath,
+                                remainingTableBuckets);
+                    }
                 }
-            } catch (Exception e) {
-                throw new FlinkRuntimeException(
-                        String.format(
-                                "Failed to get and register table snapshot for table %s and partition %s",
-                                tablePath, partitionName),
-                        ExceptionUtils.stripCompletionException(e));
-            }
-            splits.addAll(getSnapshotAndLogSplits(kvSnapshots, partitionName));
+            } while (!remainingTableBuckets.isEmpty());
+        } catch (Exception e) {
+            throw new FlinkRuntimeException(
+                    String.format("Failed to get table snapshot for %s", tablePath),
+                    ExceptionUtils.stripCompletionException(e));
         }
-        return splits;
+
+        return new KvSnapshots(tableId, partitionId, snapshotIds, logOffsets);
+    }
+
+    private KvSnapshots getLatestKvSnapshots(@Nullable String partitionName) throws Exception {
+        if (partitionName == null) {
+            return flussAdmin.getLatestKvSnapshots(tablePath).get();
+        } else {
+            return flussAdmin.getLatestKvSnapshots(tablePath, partitionName).get();
+        }
     }
 
     private List<SourceSplitBase> getSnapshotAndLogSplits(
@@ -907,8 +920,15 @@ public class FlinkSourceEnumerator
         } else if (sourceEvent instanceof FinishedKvSnapshotConsumeEvent) {
             FinishedKvSnapshotConsumeEvent event = (FinishedKvSnapshotConsumeEvent) sourceEvent;
             long checkpointId = event.getCheckpointId();
-            event.getTableBuckets()
-                    .forEach(tableBucket -> addConsumedBucket(checkpointId, tableBucket));
+            Set<TableBucket> tableBuckets = event.getTableBuckets();
+            if (!tableBuckets.isEmpty()) {
+                LOG.info(
+                        "Received finished kv snapshot consumer event for buckets: {}, checkpoint id: {}",
+                        tableBuckets,
+                        checkpointId);
+            }
+
+            tableBuckets.forEach(tableBucket -> addConsumedBucket(checkpointId, tableBucket));
         }
     }
 
@@ -948,8 +968,24 @@ public class FlinkSourceEnumerator
         // lower than this checkpoint id.
         Set<TableBucket> consumedKvSnapshots = getAndRemoveConsumedBucketsUpTo(checkpointId);
 
-        // send request to fluss admin to unregister the kv snapshot consumer.
-        flussAdmin.unregisterKvSnapshotConsumer(kvSnapshotConsumerId, consumedKvSnapshots).get();
+        LOG.info(
+                "kv snapshot has already consumed and unregister kv snapshot consumer for: {}, checkpoint id: {}",
+                consumedKvSnapshots,
+                checkpointId);
+
+        // send request to fluss to unregister the kv snapshot consumer.
+        try {
+            flussAdmin
+                    .unregisterKvSnapshotConsumer(kvSnapshotConsumerId, consumedKvSnapshots)
+                    .get();
+        } catch (Exception e) {
+            LOG.error(
+                    "Failed to unregister kv snapshot consumer. These snapshot need to re-enqueue",
+                    e);
+            // use the currently checkpoint id to re-enqueue the buckets
+            consumedKvSnapshots.forEach(
+                    tableBucket -> addConsumedBucket(checkpointId, tableBucket));
+        }
     }
 
     /** Add bucket who has been consumed kv snapshot to the consumedKvSnapshotMap. */

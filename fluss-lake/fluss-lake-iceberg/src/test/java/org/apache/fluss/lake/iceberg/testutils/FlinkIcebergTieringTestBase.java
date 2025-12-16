@@ -105,7 +105,8 @@ public class FlinkIcebergTieringTestBase {
 
     private static Configuration initConfig() {
         Configuration conf = new Configuration();
-        conf.set(ConfigOptions.KV_SNAPSHOT_INTERVAL, Duration.ofSeconds(1));
+        conf.set(ConfigOptions.KV_SNAPSHOT_INTERVAL, Duration.ofSeconds(1))
+                .set(ConfigOptions.KV_MAX_RETAINED_SNAPSHOTS, Integer.MAX_VALUE);
 
         // Configure the tiering sink to be Iceberg
         conf.set(ConfigOptions.DATALAKE_FORMAT, DataLakeFormat.ICEBERG);

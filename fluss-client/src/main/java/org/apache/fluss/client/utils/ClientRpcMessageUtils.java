@@ -23,6 +23,7 @@ import org.apache.fluss.client.lookup.PrefixLookupBatch;
 import org.apache.fluss.client.metadata.KvSnapshotMetadata;
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.client.metadata.RegisterKvSnapshotResult;
 import org.apache.fluss.client.write.KvWriteBatch;
 import org.apache.fluss.client.write.ReadyWriteBatch;
 import org.apache.fluss.config.cluster.AlterConfigOpType;
@@ -65,10 +66,12 @@ import org.apache.fluss.rpc.messages.PbProduceLogReqForBucket;
 import org.apache.fluss.rpc.messages.PbPutKvReqForBucket;
 import org.apache.fluss.rpc.messages.PbRemotePathAndLocalFile;
 import org.apache.fluss.rpc.messages.PbRenameColumn;
+import org.apache.fluss.rpc.messages.PbTable;
 import org.apache.fluss.rpc.messages.PrefixLookupRequest;
 import org.apache.fluss.rpc.messages.ProduceLogRequest;
 import org.apache.fluss.rpc.messages.PutKvRequest;
 import org.apache.fluss.rpc.messages.RegisterKvSnapshotConsumerRequest;
+import org.apache.fluss.rpc.messages.RegisterKvSnapshotConsumerResponse;
 import org.apache.fluss.rpc.messages.UnregisterKvSnapshotConsumerRequest;
 import org.apache.fluss.utils.json.DataTypeJsonSerde;
 import org.apache.fluss.utils.json.JsonSerdeUtils;
@@ -79,6 +82,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -406,6 +410,23 @@ public class ClientRpcMessageUtils {
                     .addAllBucketsReqs(entry.getValue());
         }
         return request;
+    }
+
+    public static RegisterKvSnapshotResult toRegisterKvSnapshotResult(
+            RegisterKvSnapshotConsumerResponse response) {
+        Set<TableBucket> failedTableBucketSet = new HashSet<>();
+        for (PbTable failedTable : response.getFailedTablesList()) {
+            long tableId = failedTable.getTableId();
+            for (PbBucket pbBucket : failedTable.getBucketsList()) {
+                TableBucket tableBucket =
+                        new TableBucket(
+                                tableId,
+                                pbBucket.hasPartitionId() ? pbBucket.getPartitionId() : null,
+                                pbBucket.getBucketId());
+                failedTableBucketSet.add(tableBucket);
+            }
+        }
+        return new RegisterKvSnapshotResult(failedTableBucketSet);
     }
 
     public static UnregisterKvSnapshotConsumerRequest makeUnregisterKvSnapshotConsumerRequest(

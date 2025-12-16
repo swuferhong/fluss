@@ -41,6 +41,8 @@ import org.apache.flink.api.connector.source.SourceEvent;
 import org.apache.flink.api.connector.source.SourceReaderContext;
 import org.apache.flink.connector.base.source.reader.RecordsWithSplitIds;
 import org.apache.flink.connector.base.source.reader.synchronization.FutureCompletingBlockingQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 
@@ -54,6 +56,8 @@ import java.util.function.Consumer;
 public class FlinkSourceReader<OUT>
         extends SingleThreadMultiplexSourceReaderBaseAdapter<
                 RecordAndPos, OUT, SourceSplitBase, SourceSplitState> {
+
+    private static final Logger LOG = LoggerFactory.getLogger(FlinkSourceReader.class);
 
     /** the tableBuckets ignore to send FinishedKvSnapshotConsumeEvent as it already sending. */
     private final Set<TableBucket> ignoreBuckets;
@@ -107,7 +111,7 @@ public class FlinkSourceReader<OUT>
             if (sourceSplitBase.isHybridSnapshotLogSplit()) {
                 HybridSnapshotLogSplit hybridSnapshotLogSplit =
                         sourceSplitBase.asHybridSnapshotLogSplit();
-                if (!hybridSnapshotLogSplit.isSnapshotFinished()) {
+                if (hybridSnapshotLogSplit.isSnapshotFinished()) {
                     bucketsFinishedConsumeKvSnapshot.add(tableBucket);
                 }
             }
@@ -115,6 +119,11 @@ public class FlinkSourceReader<OUT>
 
         // report finished kv snapshot consume event.
         if (!bucketsFinishedConsumeKvSnapshot.isEmpty()) {
+            LOG.info(
+                    "reader has finished kv snapshot read for bucket: {}, checkpoint id {}",
+                    bucketsFinishedConsumeKvSnapshot,
+                    checkpointId);
+
             context.sendSourceEventToCoordinator(
                     new FinishedKvSnapshotConsumeEvent(
                             checkpointId, bucketsFinishedConsumeKvSnapshot));
