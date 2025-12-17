@@ -119,6 +119,7 @@ public class KvSnapshotConsumerManager {
     }
 
     public void start() {
+        LOG.info("kv snapshot consumer manager has been started.");
         scheduledExecutor.scheduleWithFixedDelay(
                 this::expireConsumers,
                 0L,
@@ -138,7 +139,7 @@ public class KvSnapshotConsumerManager {
 
                 initializeRefCount(kvSnapshotConsumer);
 
-                consumedBucketCount.getAndAdd(kvSnapshotConsumer.getConsumedSnapshotCount());
+                consumedBucketCount.addAndGet(kvSnapshotConsumer.getConsumedSnapshotCount());
             }
         }
     }
@@ -215,18 +216,17 @@ public class KvSnapshotConsumerManager {
                                 continue;
                             }
 
-                            boolean isUpdate =
+                            long originalSnapshotId =
                                     consumer.registerBucket(tableBucket, kvSnapshotId, numBuckets);
-                            if (!isUpdate) {
-                                consumedBucketCount.getAndIncrement();
-                                inWriteLock(
-                                        refCountLock,
-                                        () -> {
-                                            refCount.computeIfAbsent(
-                                                            bucket, k -> new AtomicInteger(0))
-                                                    .getAndIncrement();
-                                        });
+                            if (originalSnapshotId == -1L) {
+                                consumedBucketCount.incrementAndGet();
+                            } else {
+                                // clear the original ref.
+                                decrementRefCount(
+                                        new ConsumeKvSnapshotForBucket(
+                                                tableBucket, originalSnapshotId));
                             }
+                            incrementRefCount(bucket);
                         }
                     }
 
@@ -262,23 +262,9 @@ public class KvSnapshotConsumerManager {
                         for (TableBucket bucket : buckets) {
                             long snapshotId = consumer.unregisterBucket(bucket);
                             if (snapshotId != -1L) {
-                                consumedBucketCount.getAndDecrement();
-                                inWriteLock(
-                                        refCountLock,
-                                        () -> {
-                                            ConsumeKvSnapshotForBucket consumeKvSnapshotForBucket =
-                                                    new ConsumeKvSnapshotForBucket(
-                                                            bucket, snapshotId);
-                                            AtomicInteger atomicInteger =
-                                                    refCount.get(consumeKvSnapshotForBucket);
-                                            if (atomicInteger != null) {
-                                                int decrementAndGet =
-                                                        atomicInteger.decrementAndGet();
-                                                if (decrementAndGet <= 0) {
-                                                    refCount.remove(consumeKvSnapshotForBucket);
-                                                }
-                                            }
-                                        });
+                                consumedBucketCount.decrementAndGet();
+                                decrementRefCount(
+                                        new ConsumeKvSnapshotForBucket(bucket, snapshotId));
                             }
                         }
                     }
@@ -331,14 +317,9 @@ public class KvSnapshotConsumerManager {
                     continue;
                 }
 
-                ConsumeKvSnapshotForBucket bucket =
+                incrementRefCount(
                         new ConsumeKvSnapshotForBucket(
-                                new TableBucket(entry.getKey(), i), snapshots[i]);
-                inWriteLock(
-                        refCountLock,
-                        () ->
-                                refCount.computeIfAbsent(bucket, k -> new AtomicInteger(0))
-                                        .getAndIncrement());
+                                new TableBucket(entry.getKey(), i), snapshots[i]));
             }
         }
 
@@ -353,14 +334,9 @@ public class KvSnapshotConsumerManager {
                         continue;
                     }
 
-                    ConsumeKvSnapshotForBucket bucket =
+                    incrementRefCount(
                             new ConsumeKvSnapshotForBucket(
-                                    new TableBucket(tableId, partition, i), snapshots[i]);
-                    inWriteLock(
-                            refCountLock,
-                            () ->
-                                    refCount.computeIfAbsent(bucket, k -> new AtomicInteger(0))
-                                            .getAndIncrement());
+                                    new TableBucket(tableId, partition, i), snapshots[i]));
                 }
             }
         }
@@ -373,22 +349,10 @@ public class KvSnapshotConsumerManager {
                 if (snapshots[i] == -1L) {
                     continue;
                 }
-
-                ConsumeKvSnapshotForBucket bucket =
+                decrementRefCount(
                         new ConsumeKvSnapshotForBucket(
-                                new TableBucket(entry.getKey(), i), snapshots[i]);
-                inWriteLock(
-                        refCountLock,
-                        () -> {
-                            AtomicInteger atomicInteger = refCount.get(bucket);
-                            if (atomicInteger != null) {
-                                int decrementAndGet = atomicInteger.getAndDecrement();
-                                if (decrementAndGet <= 0) {
-                                    refCount.remove(bucket);
-                                }
-                            }
-                        });
-                consumedBucketCount.getAndDecrement();
+                                new TableBucket(entry.getKey(), i), snapshots[i]));
+                consumedBucketCount.decrementAndGet();
             }
         }
 
@@ -402,24 +366,37 @@ public class KvSnapshotConsumerManager {
                     if (snapshots[i] == -1L) {
                         continue;
                     }
-                    ConsumeKvSnapshotForBucket bucket =
+
+                    decrementRefCount(
                             new ConsumeKvSnapshotForBucket(
-                                    new TableBucket(tableId, partition, i), snapshots[i]);
-                    inWriteLock(
-                            refCountLock,
-                            () -> {
-                                AtomicInteger atomicInteger = refCount.get(bucket);
-                                if (atomicInteger != null) {
-                                    int decrementAndGet = atomicInteger.decrementAndGet();
-                                    if (decrementAndGet <= 0) {
-                                        refCount.remove(bucket);
-                                    }
-                                }
-                            });
-                    consumedBucketCount.getAndDecrement();
+                                    new TableBucket(tableId, partition, i), snapshots[i]));
+                    consumedBucketCount.decrementAndGet();
                 }
             }
         }
+    }
+
+    private void incrementRefCount(ConsumeKvSnapshotForBucket consumeKvSnapshotForBucket) {
+        inWriteLock(
+                refCountLock,
+                () ->
+                        refCount.computeIfAbsent(
+                                        consumeKvSnapshotForBucket, k -> new AtomicInteger(0))
+                                .incrementAndGet());
+    }
+
+    private void decrementRefCount(ConsumeKvSnapshotForBucket consumeKvSnapshotForBucket) {
+        inWriteLock(
+                refCountLock,
+                () -> {
+                    AtomicInteger atomicInteger = refCount.get(consumeKvSnapshotForBucket);
+                    if (atomicInteger != null) {
+                        int decrementAndGet = atomicInteger.decrementAndGet();
+                        if (decrementAndGet <= 0) {
+                            refCount.remove(consumeKvSnapshotForBucket);
+                        }
+                    }
+                });
     }
 
     private void expireConsumers() {

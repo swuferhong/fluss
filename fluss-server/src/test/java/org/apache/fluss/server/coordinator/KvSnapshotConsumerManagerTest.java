@@ -480,7 +480,7 @@ public class KvSnapshotConsumerManagerTest {
         kvSnapshotConsumerManager.unregister(consumerId, tableIdToUnregisterBucket);
     }
 
-    private boolean register(
+    private long register(
             KvSnapshotConsumer consumer, ConsumeKvSnapshotForBucket consumeKvSnapshotForBucket) {
         return consumer.registerBucket(
                 consumeKvSnapshotForBucket.getTableBucket(),

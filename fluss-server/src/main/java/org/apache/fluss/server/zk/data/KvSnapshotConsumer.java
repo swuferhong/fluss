@@ -89,9 +89,9 @@ public class KvSnapshotConsumer {
      * @param tableBucket table bucket
      * @param snapshotId snapshot id
      * @param bucketNum bucket number of this table or partition
-     * @return true if this operation is update, false if this operation is insert
+     * @return the original registered snapshotId. if -1 means the bucket is new registered
      */
-    public boolean registerBucket(TableBucket tableBucket, long snapshotId, int bucketNum) {
+    public long registerBucket(TableBucket tableBucket, long snapshotId, int bucketNum) {
         Long[] bucketIndex;
         Long partitionId = tableBucket.getPartitionId();
         long tableId = tableBucket.getTableId();
@@ -129,9 +129,9 @@ public class KvSnapshotConsumer {
             throw new IllegalArgumentException(
                     "The input bucket number is not equal to the bucket number of the table.");
         }
-        boolean isUpdate = bucketIndex[bucketId] != -1L;
+        long originalSnapshotId = bucketIndex[bucketId];
         bucketIndex[bucketId] = snapshotId;
-        return isUpdate;
+        return originalSnapshotId;
     }
 
     /**

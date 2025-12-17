@@ -51,9 +51,9 @@ public class KvSnapshotConsumerTest {
         long tableId = 1L;
         int bucketId = 0;
 
-        boolean isUpdate = registerBucket(consumer, new TableBucket(tableId, bucketId), 123L);
+        long originalSnapshot = registerBucket(consumer, new TableBucket(tableId, bucketId), 123L);
 
-        assertThat(isUpdate).isFalse();
+        assertThat(originalSnapshot).isEqualTo(-1L);
         assertThat(consumer.getTableIdToSnapshots()).containsKey(tableId);
         Long[] snapshots = consumer.getTableIdToSnapshots().get(tableId);
         assertThat(snapshots).hasSize(NUM_BUCKET);
@@ -61,8 +61,8 @@ public class KvSnapshotConsumerTest {
         assertThat(snapshots[1]).isEqualTo(-1L);
 
         // Register again same bucket → should be update
-        boolean isUpdate2 = registerBucket(consumer, new TableBucket(tableId, bucketId), 456L);
-        assertThat(isUpdate2).isTrue();
+        originalSnapshot = registerBucket(consumer, new TableBucket(tableId, bucketId), 456L);
+        assertThat(originalSnapshot).isEqualTo(123L);
         assertThat(consumer.getTableIdToSnapshots().get(tableId)[bucketId]).isEqualTo(456L);
     }
 
@@ -86,12 +86,12 @@ public class KvSnapshotConsumerTest {
         KvSnapshotConsumer consumer = new KvSnapshotConsumer(1000L);
         long tableId = 1L;
 
-        boolean isUpdate = registerBucket(consumer, new TableBucket(tableId, 1000L, 0), 111L);
-        assertThat(isUpdate).isFalse();
-        isUpdate = registerBucket(consumer, new TableBucket(tableId, 1000L, 1), 122L);
-        assertThat(isUpdate).isFalse();
-        isUpdate = registerBucket(consumer, new TableBucket(tableId, 1001L, 0), 122L);
-        assertThat(isUpdate).isFalse();
+        long originalSnapshot = registerBucket(consumer, new TableBucket(tableId, 1000L, 0), 111L);
+        assertThat(originalSnapshot).isEqualTo(-1L);
+        originalSnapshot = registerBucket(consumer, new TableBucket(tableId, 1000L, 1), 122L);
+        assertThat(originalSnapshot).isEqualTo(-1L);
+        originalSnapshot = registerBucket(consumer, new TableBucket(tableId, 1001L, 0), 122L);
+        assertThat(originalSnapshot).isEqualTo(-1L);
 
         assertThat(consumer.getTableIdToPartitions()).containsKey(tableId);
         Set<Long> partitions = consumer.getTableIdToPartitions().get(tableId);
@@ -105,8 +105,8 @@ public class KvSnapshotConsumerTest {
         assertThat(partitionIdToSnapshots.get(1001L)[1]).isEqualTo(-1L);
 
         // test update.
-        isUpdate = registerBucket(consumer, new TableBucket(tableId, 1000L, 0), 222L);
-        assertThat(isUpdate).isTrue();
+        originalSnapshot = registerBucket(consumer, new TableBucket(tableId, 1000L, 0), 222L);
+        assertThat(originalSnapshot).isEqualTo(111L);
         assertThat(partitionIdToSnapshots.get(1000L)[0]).isEqualTo(222L);
     }
 
@@ -190,7 +190,7 @@ public class KvSnapshotConsumerTest {
                                 + "partitionIdToSnapshots={0=[200, -1], 1=[-1, 201]}}");
     }
 
-    private boolean registerBucket(KvSnapshotConsumer consumer, TableBucket tb, long kvSnapshotId) {
+    private long registerBucket(KvSnapshotConsumer consumer, TableBucket tb, long kvSnapshotId) {
         return consumer.registerBucket(tb, kvSnapshotId, NUM_BUCKET);
     }
 

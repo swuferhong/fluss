@@ -570,6 +570,7 @@ public class FlinkSourceEnumerator
 
                     if (!ignoreTableBucket(tb) && snapshotIdOpt.isPresent()) {
                         consumeBuckets.put(tb, snapshotIdOpt.getAsLong());
+                        LOG.info("Register222: {}:{}", tb, snapshotIdOpt.getAsLong());
                     }
                 }
 
