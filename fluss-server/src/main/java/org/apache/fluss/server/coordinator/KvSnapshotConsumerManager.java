@@ -423,6 +423,23 @@ public class KvSnapshotConsumerManager {
     }
 
     private void expireConsumers() {
+        // print all ref count.
+        inReadLock(
+                refCountLock,
+                () -> {
+                    StringBuilder sb = new StringBuilder();
+                    for (Map.Entry<ConsumeKvSnapshotForBucket, AtomicInteger> entry :
+                            refCount.entrySet()) {
+                        sb.append("{")
+                                .append(entry.getKey())
+                                .append(": ")
+                                .append(entry.getValue().get())
+                                .append("};");
+                    }
+
+                    LOG.info("ref count set: " + sb);
+                });
+
         long currentTime = clock.milliseconds();
         List<String> expiredConsumers =
                 consumers.entrySet().stream()

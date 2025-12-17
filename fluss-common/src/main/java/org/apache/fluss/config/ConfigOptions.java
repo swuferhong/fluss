@@ -1471,7 +1471,7 @@ public class ConfigOptions {
     public static final ConfigOption<Duration> KV_SNAPSHOT_CONSUMER_EXPIRATION_CHECK_INTERVAL =
             key("kv.snapshot.consumer-expiration-check-interval")
                     .durationType()
-                    .defaultValue(Duration.ofMinutes(10))
+                    .defaultValue(Duration.ofMinutes(2))
                     .withDescription(
                             "The interval to check the expiration of kv snapshot consumers. "
                                     + "The default setting is 10 minutes.");

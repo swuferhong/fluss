@@ -56,7 +56,7 @@ public class ConsumeKvSnapshotForBucket {
             return false;
         }
         ConsumeKvSnapshotForBucket that = (ConsumeKvSnapshotForBucket) o;
-        return kvSnapshotId == that.kvSnapshotId && tableBucket.equals(that.tableBucket);
+        return kvSnapshotId == that.kvSnapshotId && Objects.equals(tableBucket, that.tableBucket);
     }
 
     @Override
