@@ -457,7 +457,7 @@ public class ReplicaManager {
             int timeoutMs,
             int requiredAcks,
             Map<TableBucket, MemoryLogRecords> entriesPerBucket,
-            UserContext userContext,
+            @Nullable UserContext userContext,
             Consumer<List<ProduceLogResultForBucket>> responseCallback) {
         if (isRequiredAcksInvalid(requiredAcks)) {
             throw new InvalidRequiredAcksException("Invalid required acks: " + requiredAcks);
@@ -482,7 +482,7 @@ public class ReplicaManager {
     public void fetchLogRecords(
             FetchParams params,
             Map<TableBucket, FetchReqInfo> bucketFetchInfo,
-            UserContext userContext,
+            @Nullable UserContext userContext,
             Consumer<Map<TableBucket, FetchLogResultForBucket>> responseCallback) {
         long startTime = System.currentTimeMillis();
         Map<TableBucket, LogReadResult> logReadResults =
@@ -507,7 +507,7 @@ public class ReplicaManager {
             int requiredAcks,
             Map<TableBucket, KvRecordBatch> entriesPerBucket,
             @Nullable int[] targetColumns,
-            UserContext userContext,
+            @Nullable UserContext userContext,
             Consumer<List<PutKvResultForBucket>> responseCallback) {
         if (isRequiredAcksInvalid(requiredAcks)) {
             throw new InvalidRequiredAcksException("Invalid required acks: " + requiredAcks);
@@ -1003,8 +1003,9 @@ public class ReplicaManager {
                 // metric for kv
                 tableMetrics.incKvMessageIn(entry.getValue().getRecordCount());
                 tableMetrics.incKvBytesIn(entry.getValue().sizeInBytes());
-                // metric for cdc log of kv
-                tableMetrics.incLogBytesIn(appendInfo.validBytes(), userContext);
+                // metric for cdc log of kv.
+                // We set "userContext" to null to avoid cdc log attributed to any user.
+                tableMetrics.incLogBytesIn(appendInfo.validBytes(), null);
                 tableMetrics.incLogMessageIn(appendInfo.numMessages());
             } catch (Exception e) {
                 if (isUnexpectedException(e)) {
@@ -1308,7 +1309,7 @@ public class ReplicaManager {
             FetchParams params,
             Map<TableBucket, FetchReqInfo> bucketFetchInfo,
             Map<TableBucket, LogReadResult> logReadResults,
-            UserContext userContext,
+            @Nullable UserContext userContext,
             Consumer<Map<TableBucket, FetchLogResultForBucket>> responseCallback) {
         long bytesReadable = 0;
         boolean errorReadingData = false;

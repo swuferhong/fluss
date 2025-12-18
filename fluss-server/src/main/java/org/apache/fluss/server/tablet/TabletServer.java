@@ -45,6 +45,7 @@ import org.apache.fluss.server.kv.snapshot.DefaultCompletedKvSnapshotCommitter;
 import org.apache.fluss.server.log.LogManager;
 import org.apache.fluss.server.log.remote.RemoteLogManager;
 import org.apache.fluss.server.metadata.TabletServerMetadataCache;
+import org.apache.fluss.server.metrics.MetricManager;
 import org.apache.fluss.server.metrics.ServerMetricUtils;
 import org.apache.fluss.server.metrics.group.TabletServerMetricGroup;
 import org.apache.fluss.server.replica.ReplicaManager;
@@ -128,6 +129,9 @@ public class TabletServer extends ServerBase {
     private MetricRegistry metricRegistry;
 
     @GuardedBy("lock")
+    private MetricManager metricManager;
+
+    @GuardedBy("lock")
     private TabletServerMetricGroup tabletServerMetricGroup;
 
     @GuardedBy("lock")
@@ -195,6 +199,7 @@ public class TabletServer extends ServerBase {
             List<Endpoint> endpoints = Endpoint.loadBindEndpoints(conf, ServerType.TABLET_SERVER);
 
             // for metrics
+            this.metricManager = new MetricManager(conf);
             this.metricRegistry = MetricRegistry.create(conf, pluginManager);
             this.tabletServerMetricGroup =
                     ServerMetricUtils.createTabletServerGroup(
@@ -202,7 +207,8 @@ public class TabletServer extends ServerBase {
                             ServerMetricUtils.validateAndGetClusterId(conf),
                             rack,
                             endpoints.get(0).getHost(),
-                            serverId);
+                            serverId,
+                            metricManager);
 
             this.zkClient = ZooKeeperUtils.startZookeeperClient(conf, this);
 
@@ -406,6 +412,10 @@ public class TabletServer extends ServerBase {
 
                 if (clientMetricGroup != null) {
                     clientMetricGroup.close();
+                }
+
+                if (metricManager != null) {
+                    metricManager.close();
                 }
 
                 // We must shut down the scheduler early because otherwise, the scheduler could

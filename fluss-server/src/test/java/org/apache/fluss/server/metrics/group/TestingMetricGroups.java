@@ -24,7 +24,8 @@ import org.apache.fluss.metrics.registry.NOPMetricRegistry;
 public class TestingMetricGroups {
 
     public static final TabletServerMetricGroup TABLET_SERVER_METRICS =
-            new TabletServerMetricGroup(NOPMetricRegistry.INSTANCE, "fluss", "host", "rack", 0);
+            new TabletServerMetricGroup(
+                    NOPMetricRegistry.INSTANCE, "fluss", "host", "rack", 0, null);
 
     public static final CoordinatorMetricGroup COORDINATOR_METRICS =
             new CoordinatorMetricGroup(NOPMetricRegistry.INSTANCE, "cluster1", "host", "0");
@@ -34,8 +35,12 @@ public class TestingMetricGroups {
                     NOPMetricRegistry.INSTANCE,
                     TablePath.of("mydb", "mytable"),
                     false,
-                    TABLET_SERVER_METRICS);
+                    TABLET_SERVER_METRICS,
+                    null);
 
     public static final BucketMetricGroup BUCKET_METRICS =
             new BucketMetricGroup(NOPMetricRegistry.INSTANCE, null, 0, TABLE_METRICS);
+
+    public static final UserMetricGroup USER_METRICS =
+            new UserMetricGroup(NOPMetricRegistry.INSTANCE, "user_abc", TABLET_SERVER_METRICS);
 }

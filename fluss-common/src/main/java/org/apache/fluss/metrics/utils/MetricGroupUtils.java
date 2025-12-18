@@ -19,6 +19,8 @@ package org.apache.fluss.metrics.utils;
 
 import org.apache.fluss.metrics.groups.MetricGroup;
 
+import java.util.Arrays;
+
 /** Utils for {@link MetricGroup}. */
 public class MetricGroupUtils {
 
@@ -29,5 +31,9 @@ public class MetricGroupUtils {
         System.arraycopy(parentComponents, 0, parts, 0, parentComponents.length);
         System.arraycopy(scopes, 0, parts, parentComponents.length, scopes.length);
         return parts;
+    }
+
+    public static String getScopeName(MetricGroup parentGroup, String... scopes) {
+        return Arrays.toString(makeScope(parentGroup, scopes));
     }
 }

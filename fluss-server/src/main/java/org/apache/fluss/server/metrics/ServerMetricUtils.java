@@ -84,9 +84,11 @@ public class ServerMetricUtils {
             String clusterId,
             @Nullable String rack,
             String hostname,
-            int serverId) {
+            int serverId,
+            MetricManager metricManager) {
         TabletServerMetricGroup tabletServerMetricGroup =
-                new TabletServerMetricGroup(registry, clusterId, rack, hostname, serverId);
+                new TabletServerMetricGroup(
+                        registry, clusterId, rack, hostname, serverId, metricManager);
         createAndInitializeStatusMetricGroup(tabletServerMetricGroup);
         return tabletServerMetricGroup;
     }

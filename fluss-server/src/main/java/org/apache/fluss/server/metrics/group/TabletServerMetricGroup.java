@@ -30,9 +30,16 @@ import org.apache.fluss.metrics.SimpleCounter;
 import org.apache.fluss.metrics.ThreadSafeSimpleCounter;
 import org.apache.fluss.metrics.groups.AbstractMetricGroup;
 import org.apache.fluss.metrics.registry.MetricRegistry;
+import org.apache.fluss.metrics.utils.MetricGroupUtils;
+import org.apache.fluss.security.acl.FlussPrincipal;
+import org.apache.fluss.server.entity.UserContext;
+import org.apache.fluss.server.metrics.MetricManager;
 import org.apache.fluss.utils.MapUtils;
 
+import javax.annotation.Nullable;
+
 import java.util.Map;
+import java.util.Optional;
 
 /** The metric group for tablet server. */
 public class TabletServerMetricGroup extends AbstractMetricGroup {
@@ -42,6 +49,8 @@ public class TabletServerMetricGroup extends AbstractMetricGroup {
 
     private final Map<TablePath, TableMetricGroup> metricGroupByTable =
             MapUtils.newConcurrentHashMap();
+
+    private final MetricManager metricManager;
 
     protected final String clusterId;
     protected final String rack;
@@ -76,12 +85,18 @@ public class TabletServerMetricGroup extends AbstractMetricGroup {
     private final Counter failedIsrUpdates;
 
     public TabletServerMetricGroup(
-            MetricRegistry registry, String clusterId, String rack, String hostname, int serverId) {
+            MetricRegistry registry,
+            String clusterId,
+            String rack,
+            String hostname,
+            int serverId,
+            MetricManager metricManager) {
         super(registry, new String[] {clusterId, hostname, NAME}, null);
         this.clusterId = clusterId;
         this.rack = rack;
         this.hostname = hostname;
         this.serverId = serverId;
+        this.metricManager = metricManager;
 
         replicationBytesIn = new ThreadSafeSimpleCounter();
         meter(MetricNames.REPLICATION_IN_RATE, new MeterView(replicationBytesIn));
@@ -185,6 +200,28 @@ public class TabletServerMetricGroup extends AbstractMetricGroup {
         return bytesOut;
     }
 
+    public void incBytesIn(long n, @Nullable UserContext userContext) {
+        bytesIn.inc(n);
+
+        // user level metric
+        Optional.ofNullable(userContext)
+                .map(UserContext::getPrincipal)
+                .map(FlussPrincipal::getName)
+                .filter(name -> !name.isEmpty())
+                .ifPresent(name -> getOrCreateUserMetricGroup(name).incBytesIn(n));
+    }
+
+    public void incBytesOut(long n, @Nullable UserContext userContext) {
+        bytesOut.inc(n);
+
+        // user level metric
+        Optional.ofNullable(userContext)
+                .map(UserContext::getPrincipal)
+                .map(FlussPrincipal::getName)
+                .filter(name -> !name.isEmpty())
+                .ifPresent(name -> getOrCreateUserMetricGroup(name).incBytesOut(n));
+    }
+
     public Counter logFlushCount() {
         return logFlushCount;
     }
@@ -230,7 +267,9 @@ public class TabletServerMetricGroup extends AbstractMetricGroup {
         TableMetricGroup tableMetricGroup =
                 metricGroupByTable.computeIfAbsent(
                         tablePath,
-                        table -> new TableMetricGroup(registry, tablePath, isKvTable, this));
+                        table ->
+                                new TableMetricGroup(
+                                        registry, tablePath, isKvTable, this, metricManager));
         return tableMetricGroup.addBucketMetricGroup(physicalTablePath.getPartitionName(), bucket);
     }
 
@@ -248,5 +287,14 @@ public class TabletServerMetricGroup extends AbstractMetricGroup {
                 metricGroupByTable.remove(tablePath);
             }
         }
+    }
+
+    // ------------------------------------------------------------------------
+    //  user metric groups
+    // ------------------------------------------------------------------------
+    public UserMetricGroup getOrCreateUserMetricGroup(String principalName) {
+        String uniqueName = MetricGroupUtils.getScopeName(this, principalName);
+        return metricManager.getOrCreateMetric(
+                uniqueName, name -> new UserMetricGroup(registry, principalName, this));
     }
 }

@@ -27,9 +27,10 @@ import org.apache.fluss.metrics.NoOpCounter;
 import org.apache.fluss.metrics.ThreadSafeSimpleCounter;
 import org.apache.fluss.metrics.groups.AbstractMetricGroup;
 import org.apache.fluss.metrics.registry.MetricRegistry;
+import org.apache.fluss.metrics.utils.MetricGroupUtils;
 import org.apache.fluss.security.acl.FlussPrincipal;
 import org.apache.fluss.server.entity.UserContext;
-import org.apache.fluss.utils.MapUtils;
+import org.apache.fluss.server.metrics.MetricManager;
 
 import javax.annotation.Nullable;
 
@@ -47,7 +48,7 @@ public class TableMetricGroup extends AbstractMetricGroup {
 
     private final Map<TableBucket, BucketMetricGroup> buckets = new HashMap<>();
 
-    private final Map<String, UserMetricGroup> userMetricGroups = MapUtils.newConcurrentHashMap();
+    private final MetricManager metricManager;
 
     private final TablePath tablePath;
 
@@ -64,14 +65,15 @@ public class TableMetricGroup extends AbstractMetricGroup {
             MetricRegistry registry,
             TablePath tablePath,
             boolean isKvTable,
-            TabletServerMetricGroup serverMetricGroup) {
+            TabletServerMetricGroup serverMetricGroup,
+            MetricManager metricManager) {
         super(
                 registry,
                 makeScope(serverMetricGroup, tablePath.getDatabaseName(), tablePath.getTableName()),
                 serverMetricGroup);
         this.serverMetrics = serverMetricGroup;
         this.tablePath = tablePath;
-
+        this.metricManager = metricManager;
         // if is kv table, create kv metrics
         if (isKvTable) {
             kvMetrics = new KvMetricGroup(this);
@@ -100,28 +102,28 @@ public class TableMetricGroup extends AbstractMetricGroup {
         serverMetrics.messageIn().inc(n);
     }
 
-    public void incLogBytesIn(long n, UserContext userContext) {
+    public void incLogBytesIn(long n, @Nullable UserContext userContext) {
         logMetrics.bytesIn.inc(n);
-        serverMetrics.bytesIn().inc(n);
+        serverMetrics.incBytesIn(n, userContext);
 
-        // user level metric
+        // table user level metric, only consider log table, exclude CDC log.
         Optional.ofNullable(userContext)
                 .map(UserContext::getPrincipal)
                 .map(FlussPrincipal::getName)
                 .filter(name -> !name.isEmpty())
-                .ifPresent(name -> getOrCreateUserMetricGroup(name).bytesIn.inc(n));
+                .ifPresent(name -> getOrCreateUserMetricGroup(name).incBytesIn(n));
     }
 
-    public void incLogBytesOut(long n, UserContext userContext) {
+    public void incLogBytesOut(long n, @Nullable UserContext userContext) {
         logMetrics.bytesOut.inc(n);
-        serverMetrics.bytesOut().inc(n);
+        serverMetrics.incBytesOut(n, userContext);
 
         // user level metric
         Optional.ofNullable(userContext)
                 .map(UserContext::getPrincipal)
                 .map(FlussPrincipal::getName)
                 .filter(name -> !name.isEmpty())
-                .ifPresent(name -> getOrCreateUserMetricGroup(name).bytesOut.inc(n));
+                .ifPresent(name -> getOrCreateUserMetricGroup(name).incBytesOut(n));
     }
 
     public Counter totalFetchLogRequests() {
@@ -245,26 +247,26 @@ public class TableMetricGroup extends AbstractMetricGroup {
     // ------------------------------------------------------------------------
     //  user groups
     // ------------------------------------------------------------------------
-    private UserMetricGroup getOrCreateUserMetricGroup(String principalName) {
-        return userMetricGroups.computeIfAbsent(
-                principalName, name -> new UserMetricGroup(this, principalName));
+    private TableUserMetricGroup getOrCreateUserMetricGroup(String principalName) {
+        String uniqueName = MetricGroupUtils.getScopeName(this, principalName);
+        return metricManager.getOrCreateMetric(
+                uniqueName, name -> new TableUserMetricGroup(this, principalName));
     }
 
-    private static class UserMetricGroup extends AbstractMetricGroup {
+    private static class TableUserMetricGroup extends AbstractMetricGroup {
         private final String principalName;
         protected final Counter bytesIn;
         protected final Counter bytesOut;
 
-        private UserMetricGroup(TableMetricGroup tableMetricGroup, String principalName) {
+        private TableUserMetricGroup(TableMetricGroup tableMetricGroup, String principalName) {
             super(
                     tableMetricGroup.registry,
                     makeScope(tableMetricGroup, principalName),
                     tableMetricGroup);
             this.principalName = principalName;
-            bytesIn = new ThreadSafeSimpleCounter();
-            meter(MetricNames.BYTES_IN_RATE, new MeterView(bytesIn));
-            bytesOut = new ThreadSafeSimpleCounter();
-            meter(MetricNames.BYTES_OUT_RATE, new MeterView(bytesOut));
+
+            bytesIn = counter(MetricNames.BYTES_IN_COUNT, new ThreadSafeSimpleCounter());
+            bytesOut = counter(MetricNames.BYTES_OUT_COUNT, new ThreadSafeSimpleCounter());
         }
 
         @Override
@@ -274,7 +276,17 @@ public class TableMetricGroup extends AbstractMetricGroup {
 
         @Override
         protected void putVariables(Map<String, String> variables) {
-            variables.put("name", principalName);
+            variables.put("user", principalName);
+        }
+
+        public void incBytesIn(long n) {
+            this.lastRecordTime = System.currentTimeMillis();
+            bytesIn.inc(n);
+        }
+
+        public void incBytesOut(long n) {
+            this.lastRecordTime = System.currentTimeMillis();
+            bytesOut.inc(n);
         }
     }
 

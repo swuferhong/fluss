@@ -1751,6 +1751,14 @@ public class ConfigOptions {
                                     + "the CoordinatorServer) it is advisable to use a port range "
                                     + "like 9250-9260.");
 
+    public static final ConfigOption<Duration> METRICS_MANAGER_INACTIVE_EXPIRATION_TIME =
+            key("metrics.manager.inactive-expiration-time")
+                    .durationType()
+                    .defaultValue(Duration.ofHours(1))
+                    .withDescription(
+                            "The time to wait an inactive metric to be expired."
+                                    + "This is not effective for permanent metric but for temporary metric. Mostly user level metric.");
+
     // ------------------------------------------------------------------------
     //  ConfigOptions for jmx reporter
     // ------------------------------------------------------------------------

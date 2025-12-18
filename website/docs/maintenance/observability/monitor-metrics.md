@@ -380,7 +380,7 @@ Some metrics might not be exposed when using other JVM implementations (e.g. IBM
   </thead>
   <tbody>
     <tr>
-      <th rowspan="31"><strong>tabletserver</strong></th>
+      <th rowspan="33"><strong>tabletserver</strong></th>
       <td style={{textAlign: 'center', verticalAlign: 'middle' }} rowspan="25">-</td>
       <td>messagesInPerSecond</td>
       <td>The number of messages written per second to this server.</td>
@@ -529,14 +529,24 @@ Some metrics might not be exposed when using other JVM implementations (e.g. IBM
       <td>Gauge</td>
     </tr>
     <tr>
-      <td rowspan="2">user</td>
+      <td rowspan="4">user</td>
+      <td>bytesInCount</td>
+      <td>The total number of bytes written to this server labeled with <code>user</code>. </td>
+      <td>Counter</td>
+    </tr>
+     <tr>
       <td>bytesInPerSecond</td>
-      <td>The number of bytes written per second to this table labeled with user <code>name</code>.</td>
+      <td>The number of bytes written per second to this server labeled with <code>user</code>.</td>
       <td>Meter</td>
     </tr>
-    <tr>
+     <tr>
+      <td>bytesOutCount</td>
+      <td>The total number of bytes read from this server labeled with <code>user</code>.</td>
+      <td>Counter</td>
+    </tr>
+     <tr>
       <td>bytesOutPerSecond</td>
-      <td>The number of bytes read per second from this table labeled with user <code>name</code>.</td>
+      <td>The number of bytes read per second from this server labeled with <code>user</code>.</td>
       <td>Meter</td>
     </tr>
   </tbody>
@@ -662,7 +672,7 @@ Some metrics might not be exposed when using other JVM implementations (e.g. IBM
   </thead>
   <tbody>
     <tr>
-      <th rowspan="30"><strong>tabletserver</strong></th>
+      <th rowspan="32"><strong>tabletserver</strong></th>
       <td rowspan="20">table</td>
       <td>messagesInPerSecond</td>
       <td>The number of messages written per second to this table.</td>
@@ -811,6 +821,17 @@ Some metrics might not be exposed when using other JVM implementations (e.g. IBM
       <td>kvSize</td>
       <td>The logical storage size of kv for this table bucket.</td>
       <td>Gauge</td>
+    </tr>
+     <tr>
+      <td rowspan="2">table_user</td>
+      <td>bytesInCount</td>
+      <td>The total number of bytes written to this table labeled with <code>user</code>. </td>
+      <td>Counter</td>
+    </tr>
+     <tr>
+      <td>bytesOutCount</td>
+      <td>The total number of bytes read from this table labeled with <code>user</code>.</td>
+      <td>Counter</td>
     </tr>
   </tbody>
 </table>
