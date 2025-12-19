@@ -85,6 +85,7 @@ import org.apache.fluss.server.log.checkpoint.OffsetCheckpointFile;
 import org.apache.fluss.server.log.remote.RemoteLogManager;
 import org.apache.fluss.server.metadata.ClusterMetadata;
 import org.apache.fluss.server.metadata.TabletServerMetadataCache;
+import org.apache.fluss.server.metrics.UserMetrics;
 import org.apache.fluss.server.metrics.group.BucketMetricGroup;
 import org.apache.fluss.server.metrics.group.TableMetricGroup;
 import org.apache.fluss.server.metrics.group.TabletServerMetricGroup;
@@ -187,6 +188,7 @@ public class ReplicaManager {
 
     // for metrics
     private final TabletServerMetricGroup serverMetricGroup;
+    private final UserMetrics userMetrics;
     private final String internalListenerName;
 
     private final Clock clock;
@@ -204,6 +206,7 @@ public class ReplicaManager {
             CompletedKvSnapshotCommitter completedKvSnapshotCommitter,
             FatalErrorHandler fatalErrorHandler,
             TabletServerMetricGroup serverMetricGroup,
+            UserMetrics userMetrics,
             Clock clock,
             ExecutorService ioExecutor)
             throws IOException {
@@ -220,6 +223,7 @@ public class ReplicaManager {
                 completedKvSnapshotCommitter,
                 fatalErrorHandler,
                 serverMetricGroup,
+                userMetrics,
                 new RemoteLogManager(conf, zkClient, coordinatorGateway, clock, ioExecutor),
                 clock,
                 ioExecutor);
@@ -239,6 +243,7 @@ public class ReplicaManager {
             CompletedKvSnapshotCommitter completedKvSnapshotCommitter,
             FatalErrorHandler fatalErrorHandler,
             TabletServerMetricGroup serverMetricGroup,
+            UserMetrics userMetrics,
             RemoteLogManager remoteLogManager,
             Clock clock,
             ExecutorService ioExecutor)
@@ -285,6 +290,7 @@ public class ReplicaManager {
                         zkClient, completedKvSnapshotCommitter, kvSnapshotResource, conf);
         this.remoteLogManager = remoteLogManager;
         this.serverMetricGroup = serverMetricGroup;
+        this.userMetrics = userMetrics;
         this.clock = clock;
         this.ioExecutor = ioExecutor;
         registerMetrics();
@@ -507,7 +513,6 @@ public class ReplicaManager {
             int requiredAcks,
             Map<TableBucket, KvRecordBatch> entriesPerBucket,
             @Nullable int[] targetColumns,
-            @Nullable UserContext userContext,
             Consumer<List<PutKvResultForBucket>> responseCallback) {
         if (isRequiredAcksInvalid(requiredAcks)) {
             throw new InvalidRequiredAcksException("Invalid required acks: " + requiredAcks);
@@ -515,7 +520,7 @@ public class ReplicaManager {
 
         long startTime = System.currentTimeMillis();
         Map<TableBucket, PutKvResultForBucket> kvPutResult =
-                putToLocalKv(entriesPerBucket, targetColumns, requiredAcks, userContext);
+                putToLocalKv(entriesPerBucket, targetColumns, requiredAcks);
         LOG.debug(
                 "Put records to local kv storage and wait generate cdc log in {} ms",
                 System.currentTimeMillis() - startTime);
@@ -933,18 +938,21 @@ public class ReplicaManager {
     private Map<TableBucket, ProduceLogResultForBucket> appendToLocalLog(
             Map<TableBucket, MemoryLogRecords> entriesPerBucket,
             int requiredAcks,
-            UserContext userContext) {
+            @Nullable UserContext userContext) {
         Map<TableBucket, ProduceLogResultForBucket> resultForBucketMap = new HashMap<>();
         for (Map.Entry<TableBucket, MemoryLogRecords> entry : entriesPerBucket.entrySet()) {
             TableBucket tb = entry.getKey();
+            MemoryLogRecords records = entry.getValue();
             TableMetricGroup tableMetrics = null;
             try {
                 Replica replica = getReplicaOrException(tb);
                 tableMetrics = replica.tableMetrics();
                 tableMetrics.totalProduceLogRequests().inc();
+                // record user metrics before appending to log,
+                // so that if appending fails, we still account the bytes.
+                userMetrics.incBytesIn(userContext, replica.getTablePath(), records.sizeInBytes());
                 LOG.trace("Append records to local log tablet for table bucket {}", tb);
-                LogAppendInfo appendInfo =
-                        replica.appendRecordsToLeader(entry.getValue(), requiredAcks);
+                LogAppendInfo appendInfo = replica.appendRecordsToLeader(records, requiredAcks);
 
                 long baseOffset = appendInfo.firstOffset();
                 LOG.trace(
@@ -956,7 +964,7 @@ public class ReplicaManager {
                 resultForBucketMap.put(
                         tb,
                         new ProduceLogResultForBucket(tb, baseOffset, appendInfo.lastOffset() + 1));
-                tableMetrics.incLogBytesIn(appendInfo.validBytes(), userContext);
+                tableMetrics.incLogBytesIn(appendInfo.validBytes());
                 tableMetrics.incLogMessageIn(appendInfo.numMessages());
             } catch (Exception e) {
                 if (isUnexpectedException(e)) {
@@ -979,8 +987,7 @@ public class ReplicaManager {
     private Map<TableBucket, PutKvResultForBucket> putToLocalKv(
             Map<TableBucket, KvRecordBatch> entriesPerBucket,
             @Nullable int[] targetColumns,
-            int requiredAcks,
-            UserContext userContext) {
+            int requiredAcks) {
         Map<TableBucket, PutKvResultForBucket> putResultForBucketMap = new HashMap<>();
         for (Map.Entry<TableBucket, KvRecordBatch> entry : entriesPerBucket.entrySet()) {
             TableBucket tb = entry.getKey();
@@ -1003,9 +1010,8 @@ public class ReplicaManager {
                 // metric for kv
                 tableMetrics.incKvMessageIn(entry.getValue().getRecordCount());
                 tableMetrics.incKvBytesIn(entry.getValue().sizeInBytes());
-                // metric for cdc log of kv.
-                // We set "userContext" to null to avoid cdc log attributed to any user.
-                tableMetrics.incLogBytesIn(appendInfo.validBytes(), null);
+                // metric for cdc log of kv
+                tableMetrics.incLogBytesIn(appendInfo.validBytes());
                 tableMetrics.incLogMessageIn(appendInfo.numMessages());
             } catch (Exception e) {
                 if (isUnexpectedException(e)) {
@@ -1061,7 +1067,7 @@ public class ReplicaManager {
     public Map<TableBucket, LogReadResult> readFromLog(
             FetchParams fetchParams,
             Map<TableBucket, FetchReqInfo> bucketFetchInfo,
-            UserContext userContext) {
+            @Nullable UserContext userContext) {
         Map<TableBucket, LogReadResult> logReadResult = new HashMap<>();
         boolean isFromFollower = fetchParams.isFromFollower();
         int limitBytes = fetchParams.maxFetchBytes();
@@ -1119,7 +1125,8 @@ public class ReplicaManager {
                 if (isFromFollower) {
                     serverMetricGroup.replicationBytesOut().inc(recordBatchSize);
                 } else {
-                    tableMetrics.incLogBytesOut(recordBatchSize, userContext);
+                    tableMetrics.incLogBytesOut(recordBatchSize);
+                    userMetrics.incBytesOut(userContext, replica.getTablePath(), recordBatchSize);
                 }
             } catch (Exception e) {
                 if (isUnexpectedException(e)) {

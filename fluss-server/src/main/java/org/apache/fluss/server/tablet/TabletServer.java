@@ -45,8 +45,8 @@ import org.apache.fluss.server.kv.snapshot.DefaultCompletedKvSnapshotCommitter;
 import org.apache.fluss.server.log.LogManager;
 import org.apache.fluss.server.log.remote.RemoteLogManager;
 import org.apache.fluss.server.metadata.TabletServerMetadataCache;
-import org.apache.fluss.server.metrics.MetricManager;
 import org.apache.fluss.server.metrics.ServerMetricUtils;
+import org.apache.fluss.server.metrics.UserMetrics;
 import org.apache.fluss.server.metrics.group.TabletServerMetricGroup;
 import org.apache.fluss.server.replica.ReplicaManager;
 import org.apache.fluss.server.zk.ZooKeeperClient;
@@ -129,7 +129,7 @@ public class TabletServer extends ServerBase {
     private MetricRegistry metricRegistry;
 
     @GuardedBy("lock")
-    private MetricManager metricManager;
+    private UserMetrics userMetrics;
 
     @GuardedBy("lock")
     private TabletServerMetricGroup tabletServerMetricGroup;
@@ -198,8 +198,10 @@ public class TabletServer extends ServerBase {
 
             List<Endpoint> endpoints = Endpoint.loadBindEndpoints(conf, ServerType.TABLET_SERVER);
 
+            this.scheduler = new FlussScheduler(conf.get(BACKGROUND_THREADS));
+            scheduler.startup();
+
             // for metrics
-            this.metricManager = new MetricManager(conf);
             this.metricRegistry = MetricRegistry.create(conf, pluginManager);
             this.tabletServerMetricGroup =
                     ServerMetricUtils.createTabletServerGroup(
@@ -207,8 +209,8 @@ public class TabletServer extends ServerBase {
                             ServerMetricUtils.validateAndGetClusterId(conf),
                             rack,
                             endpoints.get(0).getHost(),
-                            serverId,
-                            metricManager);
+                            serverId);
+            this.userMetrics = new UserMetrics(scheduler, metricRegistry, tabletServerMetricGroup);
 
             this.zkClient = ZooKeeperUtils.startZookeeperClient(conf, this);
 
@@ -221,9 +223,6 @@ public class TabletServer extends ServerBase {
             dynamicConfigManager.startup();
 
             this.metadataCache = new TabletServerMetadataCache(metadataManager);
-
-            this.scheduler = new FlussScheduler(conf.get(BACKGROUND_THREADS));
-            scheduler.startup();
 
             this.logManager =
                     LogManager.create(conf, zkClient, scheduler, clock, tabletServerMetricGroup);
@@ -268,6 +267,7 @@ public class TabletServer extends ServerBase {
                                     rpcClient, metadataCache, interListenerName),
                             this,
                             tabletServerMetricGroup,
+                            userMetrics,
                             clock,
                             ioExecutor);
             replicaManager.startup();
@@ -414,8 +414,8 @@ public class TabletServer extends ServerBase {
                     clientMetricGroup.close();
                 }
 
-                if (metricManager != null) {
-                    metricManager.close();
+                if (userMetrics != null) {
+                    userMetrics.close();
                 }
 
                 // We must shut down the scheduler early because otherwise, the scheduler could

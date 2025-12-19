@@ -230,7 +230,6 @@ public final class TabletService extends RpcServiceBase implements TabletServerG
                 request.getAcks(),
                 putKvData,
                 getTargetColumns(request),
-                new UserContext(currentSession().getPrincipal()),
                 bucketResponse -> response.complete(makePutKvResponse(bucketResponse)));
         return response;
     }

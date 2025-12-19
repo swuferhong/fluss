@@ -20,12 +20,14 @@ package org.apache.fluss.server.entity;
 
 import org.apache.fluss.security.acl.FlussPrincipal;
 
+import static org.apache.fluss.utils.Preconditions.checkNotNull;
+
 /** The context information of user who writes or reads table. */
 public class UserContext {
     private final FlussPrincipal principal;
 
     public UserContext(FlussPrincipal principal) {
-        this.principal = principal;
+        this.principal = checkNotNull(principal);
     }
 
     public FlussPrincipal getPrincipal() {

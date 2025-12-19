@@ -19,24 +19,40 @@
 
 package org.apache.fluss.server.metrics.group;
 
-import org.apache.fluss.metrics.MeterView;
+import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.metrics.MetricNames;
 import org.apache.fluss.metrics.registry.MetricRegistry;
 
-/**
- * Metrics for the overall user level in server with {@link TabletServerMetricGroup} as parent
- * group.
- */
-public class UserMetricGroup extends AbstractUserMetricGroup {
+import java.util.Map;
 
-    public UserMetricGroup(
+import static org.apache.fluss.utils.Preconditions.checkNotNull;
+
+/**
+ * Metrics for the users per table in server with {@link TabletServerMetricGroup} as parent group.
+ */
+public class UserPerTableMetricGroup extends AbstractUserMetricGroup {
+
+    private final TablePath tablePath;
+
+    public UserPerTableMetricGroup(
             MetricRegistry registry,
             String principalName,
+            TablePath tablePath,
             long inactiveMetricExpirationTimeMs,
             TabletServerMetricGroup tabletServerMetricGroup) {
         super(registry, principalName, inactiveMetricExpirationTimeMs, tabletServerMetricGroup);
+        this.tablePath = checkNotNull(tablePath);
 
-        meter(MetricNames.BYTES_IN_RATE, new MeterView(bytesIn));
-        meter(MetricNames.BYTES_OUT_RATE, new MeterView(bytesOut));
+        // only track counters for per-table user metrics for billing purposes,
+        // the corresponding rates are tracked at the overall user level
+        counter(MetricNames.BYTES_IN, bytesIn);
+        counter(MetricNames.BYTES_OUT, bytesOut);
+    }
+
+    @Override
+    protected void putVariables(Map<String, String> variables) {
+        super.putVariables(variables);
+        variables.put("database", tablePath.getDatabaseName());
+        variables.put("table", tablePath.getTableName());
     }
 }

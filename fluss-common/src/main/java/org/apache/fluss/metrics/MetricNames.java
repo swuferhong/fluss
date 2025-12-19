@@ -77,8 +77,8 @@ public class MetricNames {
     // --------------------------------------------------------------------------------------------
     // metrics for user
     // --------------------------------------------------------------------------------------------
-    public static final String BYTES_IN_COUNT = "bytesInCount";
-    public static final String BYTES_OUT_COUNT = "bytesOutCount";
+    public static final String BYTES_IN = "bytesIn";
+    public static final String BYTES_OUT = "bytesOut";
 
     // --------------------------------------------------------------------------------------------
     // metrics for table

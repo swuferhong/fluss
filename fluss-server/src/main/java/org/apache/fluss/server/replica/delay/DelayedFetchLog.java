@@ -41,6 +41,8 @@ import org.apache.fluss.server.replica.ReplicaManager.LogReadResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
+
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -60,7 +62,7 @@ public class DelayedFetchLog extends DelayedOperation {
     private final Map<TableBucket, FetchBucketStatus> fetchBucketStatusMap;
     private final Consumer<Map<TableBucket, FetchLogResultForBucket>> responseCallback;
     private final TabletServerMetricGroup serverMetricGroup;
-    private final UserContext userContext;
+    @Nullable private final UserContext userContext;
 
     public DelayedFetchLog(
             FetchParams params,
@@ -68,7 +70,7 @@ public class DelayedFetchLog extends DelayedOperation {
             Map<TableBucket, FetchBucketStatus> fetchBucketStatusMap,
             Consumer<Map<TableBucket, FetchLogResultForBucket>> responseCallback,
             TabletServerMetricGroup serverMetricGroup,
-            UserContext userContext) {
+            @Nullable UserContext userContext) {
         super(params.maxWaitMs());
         this.params = params;
         this.replicaManager = replicaManager;
