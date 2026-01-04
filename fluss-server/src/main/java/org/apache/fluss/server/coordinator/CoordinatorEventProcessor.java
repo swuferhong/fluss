@@ -1161,8 +1161,12 @@ public class CoordinatorEventProcessor implements EventProcessor {
             }
 
             // 2. execute rebalance plan.
-            rebalanceManager.registerRebalance(
-                    rebalancePlan.getRebalanceId(), rebalancePlan.getExecutePlan());
+            Map<TableBucket, RebalancePlanForBucket> executePlan = rebalancePlan.getExecutePlan();
+            if (executePlan.isEmpty()) {
+                LOG.warn("Skipping rebalance task since there is no rebalance task.");
+            } else {
+                rebalanceManager.registerRebalance(rebalancePlan.getRebalanceId(), executePlan);
+            }
         }
 
         return makeRebalanceRespose(rebalancePlan);
