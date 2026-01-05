@@ -1148,6 +1148,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
     private RebalanceResponse processRebalance(RebalanceEvent rebalanceEvent) {
         boolean isDryRun = rebalanceEvent.isDryRun();
         RebalancePlan rebalancePlan;
+        long startTime = System.currentTimeMillis();
         try {
             rebalancePlan =
                     rebalanceManager.generateRebalancePlan(rebalanceEvent.getGoalsByPriority());
@@ -1166,6 +1167,10 @@ public class CoordinatorEventProcessor implements EventProcessor {
             rebalanceManager.registerRebalance(rebalancePlan.getRebalanceId(), executePlan);
         }
 
+        LOG.info(
+                "Generate Rebalance plan rebalanace id {} with {} ms.",
+                rebalancePlan.getRebalanceId(),
+                System.currentTimeMillis() - startTime);
         return makeRebalanceRespose(rebalancePlan);
     }
 
