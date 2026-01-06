@@ -159,6 +159,7 @@ public abstract class AbstractGoal implements Goal {
         List<ServerModel> eligibleServers = new ArrayList<>(candidateServers);
         TableBucket tableBucket = replica.tableBucket();
         for (ServerModel server : eligibleServers) {
+            long startTime = System.currentTimeMillis();
             ReBalancingAction proposal =
                     new ReBalancingAction(tableBucket, replica.server().id(), server.id(), action);
             // A replica should be moved if:
@@ -190,6 +191,10 @@ public abstract class AbstractGoal implements Goal {
                 } else if (action == REPLICA_MOVEMENT) {
                     clusterModel.relocateReplica(tableBucket, replica.server().id(), server.id());
                 }
+                LOG.info(
+                        "Rebalance222321312 for server {} cost {} ms.",
+                        server.id(),
+                        System.currentTimeMillis() - startTime);
                 return server;
             }
         }

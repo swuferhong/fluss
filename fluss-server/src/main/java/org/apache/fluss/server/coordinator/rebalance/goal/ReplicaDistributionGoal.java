@@ -109,6 +109,7 @@ public class ReplicaDistributionGoal extends ReplicaDistributionAbstractGoal {
                 server.id(),
                 rebalanceLowerLimit,
                 rebalanceUpperLimit);
+        long startTime = System.currentTimeMillis();
         int numReplicas = server.replicas().size();
         boolean isExcludeForReplicaMove = isExcludedForReplicaMove(server);
 
@@ -121,6 +122,12 @@ public class ReplicaDistributionGoal extends ReplicaDistributionAbstractGoal {
             return;
         }
 
+        LOG.info(
+                "Rebalance333 for server {} cost {} ms.",
+                server.id(),
+                System.currentTimeMillis() - startTime);
+
+        startTime = System.currentTimeMillis();
         if (requireLessReplicas
                 && rebalanceByMovingReplicasOut(server, clusterModel, optimizedGoals)) {
             serverIdsAboveRebalanceUpperLimit.add(server.id());
@@ -130,7 +137,12 @@ public class ReplicaDistributionGoal extends ReplicaDistributionAbstractGoal {
                     server.id(),
                     server.replicas().size());
         }
+        LOG.info(
+                "Rebalance444 for server {} cost {} ms.",
+                server.id(),
+                System.currentTimeMillis() - startTime);
 
+        startTime = System.currentTimeMillis();
         if (requireMoreReplicas
                 && rebalanceByMovingReplicasIn(server, clusterModel, optimizedGoals)) {
             serverIdsBelowRebalanceLowerLimit.add(server.id());
@@ -140,7 +152,12 @@ public class ReplicaDistributionGoal extends ReplicaDistributionAbstractGoal {
                     server.id(),
                     server.replicas().size());
         }
+        LOG.info(
+                "Rebalance555 for server {} cost {} ms.",
+                server.id(),
+                System.currentTimeMillis() - startTime);
 
+        startTime = System.currentTimeMillis();
         if (!serverIdsAboveRebalanceUpperLimit.contains(server.id())
                 && !serverIdsBelowRebalanceLowerLimit.contains(server.id())) {
             LOG.debug(
@@ -149,6 +166,10 @@ public class ReplicaDistributionGoal extends ReplicaDistributionAbstractGoal {
                     server.id(),
                     server.replicas().size());
         }
+        LOG.info(
+                "Rebalance666 for server {} cost {} ms.",
+                server.id(),
+                System.currentTimeMillis() - startTime);
     }
 
     @Override
@@ -168,21 +189,32 @@ public class ReplicaDistributionGoal extends ReplicaDistributionAbstractGoal {
 
     private boolean rebalanceByMovingReplicasOut(
             ServerModel server, ClusterModel cluster, Set<Goal> optimizedGoals) {
+        long startTime = System.currentTimeMillis();
         SortedSet<ServerModel> candidateServers =
                 new TreeSet<>(
                         Comparator.comparingInt((ServerModel b) -> b.replicas().size())
                                 .thenComparingInt(ServerModel::id));
+        LOG.info(
+                "Rebalance222-11 for server {} cost {} ms.",
+                server.id(),
+                System.currentTimeMillis() - startTime);
 
+        startTime = System.currentTimeMillis();
         candidateServers.addAll(
                 cluster.aliveServers().stream()
                         .filter(b -> b.replicas().size() < rebalanceUpperLimit)
                         .collect(Collectors.toSet()));
         int balanceUpperLimitForSourceServer =
                 isExcludedForReplicaMove(server) ? 0 : rebalanceUpperLimit;
+        LOG.info(
+                "Rebalance222-22 for server {} cost {} ms.",
+                server.id(),
+                System.currentTimeMillis() - startTime);
 
         // Now let's do the replica out operation.
         // TODO maybe use a sorted replicas set
         for (ReplicaModel replica : server.replicas()) {
+            startTime = System.currentTimeMillis();
             ServerModel b =
                     maybeApplyBalancingAction(
                             cluster,
@@ -190,6 +222,11 @@ public class ReplicaDistributionGoal extends ReplicaDistributionAbstractGoal {
                             candidateServers,
                             ActionType.REPLICA_MOVEMENT,
                             optimizedGoals);
+            LOG.info(
+                    "Rebalance222-33 for server {} for replica {} cost {} ms.",
+                    server.id(),
+                    replica.tableBucket(),
+                    System.currentTimeMillis() - startTime);
             // Only check if we successfully moved something.
             if (b != null) {
                 if (server.replicas().size() <= balanceUpperLimitForSourceServer) {
