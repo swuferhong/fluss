@@ -39,9 +39,14 @@ public class GoalOptimizer {
     public List<RebalancePlanForBucket> doOptimizeOnce(
             ClusterModel clusterModel, List<Goal> goalsByPriority) {
         LOG.trace("Cluster before optimization is {}", clusterModel);
+        long startTime = System.currentTimeMillis();
         Map<TableBucket, List<Integer>> initReplicaDistribution =
                 clusterModel.getReplicaDistribution();
+        LOG.info("init replica distribution cost {} ms.", System.currentTimeMillis() - startTime);
+
+        startTime = System.currentTimeMillis();
         Map<TableBucket, Integer> initLeaderDistribution = clusterModel.getLeaderDistribution();
+        LOG.info("init leader distribution cost {} ms.", System.currentTimeMillis() - startTime);
 
         // Set of balancing proposals that will be applied to the given cluster state to satisfy
         // goals (leadership transfer AFTER bucket transfer.)
@@ -59,7 +64,14 @@ public class GoalOptimizer {
                             : clusterModel.getLeaderDistribution();
 
             // executing the goal optimization.
+            startTime = System.currentTimeMillis();
             goal.optimize(clusterModel, optimizedGoals);
+            LOG.info(
+                    "[{}/{}] Optimize {} cost {} ms.",
+                    optimizedGoals.size(),
+                    goalsByPriority.size(),
+                    goal.name(),
+                    System.currentTimeMillis() - startTime);
             optimizedGoals.add(goal);
 
             boolean hasDiff =

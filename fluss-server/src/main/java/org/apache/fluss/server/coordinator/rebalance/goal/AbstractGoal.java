@@ -66,19 +66,22 @@ public abstract class AbstractGoal implements Goal {
 
         while (!finished) {
             for (ServerModel server : serversToBalance(clusterModel)) {
+                long serverStartTime = System.currentTimeMillis();
                 rebalanceForServer(server, clusterModel, optimizedGoals);
+                LOG.info(
+                        "Rebalance22 for server {} cost {} ms.",
+                        server.id(),
+                        System.currentTimeMillis() - serverStartTime);
             }
             updateGoalState(clusterModel);
         }
 
         ClusterModelStats statsAfterOptimization = clusterModel.getClusterStats();
         LOG.trace("[POST - {}] {}", name(), statsAfterOptimization);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(
-                    "Finished optimization for {} in {}ms.",
-                    name(),
-                    System.currentTimeMillis() - goalStartTime);
-        }
+        LOG.info(
+                "Finished optimization for {} in {}ms.",
+                name(),
+                System.currentTimeMillis() - goalStartTime);
         LOG.trace("Cluster after optimization is {}", clusterModel);
         // The optimization cannot make stats worse unless the cluster has (1) offline servers for
         // replica move with replicas.
