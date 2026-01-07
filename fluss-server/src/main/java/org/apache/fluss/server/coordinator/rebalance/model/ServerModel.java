@@ -63,7 +63,11 @@ public class ServerModel implements Comparable<ServerModel> {
     }
 
     public Set<ReplicaModel> replicas() {
-        return replicas;
+        return new HashSet<>(replicas);
+    }
+
+    public int numReplicas() {
+        return replicas.size();
     }
 
     public Set<ReplicaModel> leaderReplicas() {

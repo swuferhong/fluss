@@ -55,8 +55,7 @@ public class ClusterModelStats {
             ClusterModel clusterModel,
             SortedSet<ServerModel> servers,
             Set<ServerModel> aliveServers) {
-        populateReplicaStats(
-                serverModel -> serverModel.replicas().size(), replicaStats, servers, aliveServers);
+        populateReplicaStats(ServerModel::numReplicas, replicaStats, servers, aliveServers);
         numReplicasInCluster = clusterModel.numReplicas();
     }
 

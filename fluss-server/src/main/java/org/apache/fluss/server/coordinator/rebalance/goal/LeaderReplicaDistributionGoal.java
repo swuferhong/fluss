@@ -228,7 +228,7 @@ public class LeaderReplicaDistributionGoal extends ReplicaDistributionAbstractGo
                         .collect(Collectors.toSet()));
 
         int balanceUpperLimit = rebalanceUpperLimit;
-        int numReplicas = server.replicas().size();
+        int numReplicas = server.numReplicas();
         for (ReplicaModel replica : server.replicas()) {
             ServerModel b =
                     maybeApplyBalancingAction(
