@@ -848,11 +848,28 @@ public class CoordinatorEventProcessor implements EventProcessor {
                         coordinatorContext.retryDeleteAndSuccessDeleteReplicas(failDeletedReplicas);
 
         // transmit to deletion started for retry delete replicas
-        replicaStateMachine.handleStateChanges(
-                retryDeleteAndSuccessDeleteReplicas.f0, ReplicaDeletionStarted);
+        Set<TableBucketReplica> retryDeleteReplicas = retryDeleteAndSuccessDeleteReplicas.f0;
+
+        Set<TableBucketReplica> needRetryDeleteReplicas = new HashSet<>();
+        retryDeleteReplicas.forEach(
+                (replica) -> {
+                    // For rebalance case. the replica state already set to null in method
+                    // stopRemovedReplicasOfReassignedBucket. so we need to reset it again.
+                    if (coordinatorContext.getReplicaState(replica) != null) {
+                        needRetryDeleteReplicas.add(replica);
+                    }
+                });
+        replicaStateMachine.handleStateChanges(needRetryDeleteReplicas, ReplicaDeletionStarted);
 
         // add all the replicas that considered as success delete to success deleted replicas
-        successDeletedReplicas.addAll(retryDeleteAndSuccessDeleteReplicas.f1);
+        retryDeleteAndSuccessDeleteReplicas.f1.forEach(
+                (replica) -> {
+                    // For rebalance case. the replica state already set to null in method
+                    // stopRemovedReplicasOfReassignedBucket. so we need to reset it again.
+                    if (coordinatorContext.getReplicaState(replica) != null) {
+                        successDeletedReplicas.add(replica);
+                    }
+                });
         // transmit to deletion successful for success deleted replicas
         replicaStateMachine.handleStateChanges(successDeletedReplicas, ReplicaDeletionSuccessful);
         // if any success deletion, we can resume
