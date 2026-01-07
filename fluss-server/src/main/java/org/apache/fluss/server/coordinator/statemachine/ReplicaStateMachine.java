@@ -202,9 +202,15 @@ public class ReplicaStateMachine {
     private void doHandleStateChanges(
             Collection<TableBucketReplica> replicas, ReplicaState targetState) {
         replicas.forEach(
-                replica ->
-                        coordinatorContext.putReplicaStateIfNotExists(
-                                replica, ReplicaState.NonExistentReplica));
+                replica -> {
+                    LOG.info(
+                            "Handling state changes for replica {} to state {}. current state {}",
+                            replicas,
+                            targetState,
+                            coordinatorContext.getReplicaState(replica));
+                    coordinatorContext.putReplicaStateIfNotExists(
+                            replica, ReplicaState.NonExistentReplica);
+                });
         Collection<TableBucketReplica> validReplicas =
                 checkValidReplicaStateChange(replicas, targetState);
         switch (targetState) {
