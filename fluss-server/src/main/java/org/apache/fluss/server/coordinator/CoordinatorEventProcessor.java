@@ -848,10 +848,8 @@ public class CoordinatorEventProcessor implements EventProcessor {
                         coordinatorContext.retryDeleteAndSuccessDeleteReplicas(failDeletedReplicas);
 
         // transmit to deletion started for retry delete replicas
-        Set<TableBucketReplica> retryDeleteReplicas = retryDeleteAndSuccessDeleteReplicas.f0;
-
         Set<TableBucketReplica> needRetryDeleteReplicas = new HashSet<>();
-        retryDeleteReplicas.forEach(
+        retryDeleteAndSuccessDeleteReplicas.f0.forEach(
                 (replica) -> {
                     // For rebalance case. the replica state already set to null in method
                     // stopRemovedReplicasOfReassignedBucket. so we need to reset it again.
@@ -859,7 +857,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
                         needRetryDeleteReplicas.add(replica);
                     }
                 });
-        replicaStateMachine.handleStateChanges(needRetryDeleteReplicas, ReplicaDeletionStarted);
+        replicaStateMachine.handleStateChanges(needRetryDeleteReplicas, ReplicaDeletionStarted, 1);
 
         // add all the replicas that considered as success delete to success deleted replicas
         retryDeleteAndSuccessDeleteReplicas.f1.forEach(
@@ -868,10 +866,13 @@ public class CoordinatorEventProcessor implements EventProcessor {
                     // stopRemovedReplicasOfReassignedBucket. so we need to reset it again.
                     if (coordinatorContext.getReplicaState(replica) != null) {
                         successDeletedReplicas.add(replica);
+                    } else {
+                        LOG.info("The replica {} is already deleted111.", replica);
                     }
                 });
         // transmit to deletion successful for success deleted replicas
-        replicaStateMachine.handleStateChanges(successDeletedReplicas, ReplicaDeletionSuccessful);
+        replicaStateMachine.handleStateChanges(
+                successDeletedReplicas, ReplicaDeletionSuccessful, 2);
         // if any success deletion, we can resume
         if (!successDeletedReplicas.isEmpty()) {
             tableManager.resumeDeletions();
@@ -931,7 +932,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
         // for all the offline replicas, do nothing other than set it to offline currently like
         // kafka, todo: but we may need to select another tablet server to put
         // replica
-        replicaStateMachine.handleStateChanges(offlineReplicas, OfflineReplica);
+        replicaStateMachine.handleStateChanges(offlineReplicas, OfflineReplica, 3);
     }
 
     private void processNewTabletServer(NewTabletServerEvent newTabletServerEvent) {
@@ -999,7 +1000,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
                                                 tableBucketReplica.getTableBucket()))
                         .collect(Collectors.toSet());
 
-        replicaStateMachine.handleStateChanges(replicas, OnlineReplica);
+        replicaStateMachine.handleStateChanges(replicas, OnlineReplica, 4);
 
         // when a new tablet server comes up, we trigger leader election for all new
         // and offline partitions to see if those tablet servers become leaders for some/all
@@ -1062,7 +1063,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
                         .collect(Collectors.toSet());
 
         // trigger OfflineReplica state change for those newly offline replicas
-        replicaStateMachine.handleStateChanges(replicas, OfflineReplica);
+        replicaStateMachine.handleStateChanges(replicas, OfflineReplica, 5);
 
         // update tabletServer metadata cache by send updateMetadata request.
         updateTabletServerMetadataCache(serverInfos, null, null, bucketsWithOfflineLeader);
@@ -1414,7 +1415,8 @@ public class CoordinatorEventProcessor implements EventProcessor {
                             replicaStateMachine.handleStateChanges(
                                     Collections.singleton(
                                             new TableBucketReplica(tableBucket, replica)),
-                                    NewReplica));
+                                    NewReplica,
+                                    6));
         } else {
             // B1. replicas in AR -> OnlineReplica
             addingReplicas.forEach(
@@ -1422,7 +1424,8 @@ public class CoordinatorEventProcessor implements EventProcessor {
                             replicaStateMachine.handleStateChanges(
                                     Collections.singleton(
                                             new TableBucketReplica(tableBucket, replica)),
-                                    OnlineReplica));
+                                    OnlineReplica,
+                                    7));
             List<Integer> targetReplicas = reassignment.getTargetReplicas();
             // B2. Set RS = TRS, AR = [], RR = [] in memory.
             coordinatorContext.updateBucketReplicaAssignment(tableBucket, targetReplicas);
@@ -1493,13 +1496,13 @@ public class CoordinatorEventProcessor implements EventProcessor {
         Set<TableBucketReplica> replicasToBeDeleted = new HashSet<>();
         removingReplicas.forEach(
                 replica -> replicasToBeDeleted.add(new TableBucketReplica(tableBucket, replica)));
-        replicaStateMachine.handleStateChanges(replicasToBeDeleted, OfflineReplica);
+        replicaStateMachine.handleStateChanges(replicasToBeDeleted, OfflineReplica, 8);
         // send stop replica command to the old replicas.
-        replicaStateMachine.handleStateChanges(replicasToBeDeleted, ReplicaDeletionStarted);
+        replicaStateMachine.handleStateChanges(replicasToBeDeleted, ReplicaDeletionStarted, 9);
         // TODO: Eventually bucket reassignment could use a callback that does retries if deletion
         // failed
-        replicaStateMachine.handleStateChanges(replicasToBeDeleted, ReplicaDeletionSuccessful);
-        replicaStateMachine.handleStateChanges(replicasToBeDeleted, NonExistentReplica);
+        replicaStateMachine.handleStateChanges(replicasToBeDeleted, ReplicaDeletionSuccessful, 10);
+        replicaStateMachine.handleStateChanges(replicasToBeDeleted, NonExistentReplica, 11);
     }
 
     private void updateReplicaAssignmentForBucket(
@@ -1973,7 +1976,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
         // TODO need send stop request to the leader?
 
         // If the tabletServer is a follower, updates the isr in ZK and notifies the current leader.
-        replicaStateMachine.handleStateChanges(replicasFollowedByServer, OfflineReplica);
+        replicaStateMachine.handleStateChanges(replicasFollowedByServer, OfflineReplica, 12);
 
         // Return the list of buckets that are still being managed by the controlled shutdown
         // tabletServer after leader migration.

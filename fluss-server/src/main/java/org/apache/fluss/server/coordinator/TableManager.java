@@ -156,11 +156,11 @@ public class TableManager {
         // then get all the replicas of the all table buckets
         Set<TableBucketReplica> replicas = coordinatorContext.getBucketReplicas(tableBuckets);
         // transmit all the replicas to state NewReplica
-        replicaStateMachine.handleStateChanges(replicas, ReplicaState.NewReplica);
+        replicaStateMachine.handleStateChanges(replicas, ReplicaState.NewReplica, 13);
         // transmit it to state Online
         tableBucketStateMachine.handleStateChange(tableBuckets, BucketState.OnlineBucket);
         // transmit all the replicas to state online
-        replicaStateMachine.handleStateChanges(replicas, ReplicaState.OnlineReplica);
+        replicaStateMachine.handleStateChanges(replicas, ReplicaState.OnlineReplica, 15);
     }
 
     /** Invoked with a table to be deleted. */
@@ -196,9 +196,10 @@ public class TableManager {
     private void onDeleteTableBucket(Set<TableBucketReplica> allReplicas) {
         // to offline, send stop replica to all followers that are not in the OfflineReplica state
         // so they stop sending fetch requests to the leader
-        replicaStateMachine.handleStateChanges(allReplicas, ReplicaState.OfflineReplica);
+        replicaStateMachine.handleStateChanges(allReplicas, ReplicaState.OfflineReplica, 16);
         // to deletion started
-        replicaStateMachine.handleStateChanges(allReplicas, ReplicaState.ReplicaDeletionStarted);
+        replicaStateMachine.handleStateChanges(
+                allReplicas, ReplicaState.ReplicaDeletionStarted, 17);
     }
 
     public void resumeDeletions() {
@@ -253,7 +254,7 @@ public class TableManager {
 
     private void completeDeleteTable(long tableId) {
         Set<TableBucketReplica> replicas = coordinatorContext.getAllReplicasForTable(tableId);
-        replicaStateMachine.handleStateChanges(replicas, ReplicaState.NonExistentReplica);
+        replicaStateMachine.handleStateChanges(replicas, ReplicaState.NonExistentReplica, 18);
         asyncDeleteRemoteDirectory(tableId);
         asyncDeleteTableMetadata(tableId);
         coordinatorContext.removeTable(tableId);
@@ -263,7 +264,7 @@ public class TableManager {
         Set<TableBucketReplica> replicas =
                 coordinatorContext.getAllReplicasForPartition(
                         tablePartition.getTableId(), tablePartition.getPartitionId());
-        replicaStateMachine.handleStateChanges(replicas, ReplicaState.NonExistentReplica);
+        replicaStateMachine.handleStateChanges(replicas, ReplicaState.NonExistentReplica, 19);
         asyncDeleteRemoteDirectory(tablePartition);
         asyncDeletePartitionMetadata(tablePartition.getPartitionId());
         coordinatorContext.removePartition(tablePartition);

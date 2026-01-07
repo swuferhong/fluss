@@ -77,11 +77,13 @@ public class ReplicaStateMachine {
         LOG.info("Triggering online replica state changes");
         handleStateChanges(
                 replicaNotInDeletedTableOrPartition(onlineAndOfflineReplicas.f0),
-                ReplicaState.OnlineReplica);
+                ReplicaState.OnlineReplica,
+                20);
         LOG.info("Triggering offline replica state changes");
         handleStateChanges(
                 replicaNotInDeletedTableOrPartition(onlineAndOfflineReplicas.f1),
-                ReplicaState.OfflineReplica);
+                ReplicaState.OfflineReplica,
+                21);
         LOG.debug(
                 "Started replica state machine with initial state {}.",
                 coordinatorContext.getReplicaStates());
@@ -122,10 +124,10 @@ public class ReplicaStateMachine {
     }
 
     public void handleStateChanges(
-            Collection<TableBucketReplica> replicas, ReplicaState targetState) {
+            Collection<TableBucketReplica> replicas, ReplicaState targetState, int where) {
         try {
             coordinatorRequestBatch.newBatch();
-            doHandleStateChanges(replicas, targetState);
+            doHandleStateChanges(replicas, targetState, where);
             coordinatorRequestBatch.sendRequestToTabletServers(
                     coordinatorContext.getCoordinatorEpoch());
         } catch (Throwable e) {
@@ -200,14 +202,15 @@ public class ReplicaStateMachine {
      * @param targetState the target state that is to change to
      */
     private void doHandleStateChanges(
-            Collection<TableBucketReplica> replicas, ReplicaState targetState) {
+            Collection<TableBucketReplica> replicas, ReplicaState targetState, int where) {
         replicas.forEach(
                 replica -> {
                     LOG.info(
-                            "Handling state changes for replica {} to state {}. current state {}",
+                            "Handling state changes for replica {} to state {}. current state {}, where: {}",
                             replica,
                             targetState,
-                            coordinatorContext.getReplicaState(replica));
+                            coordinatorContext.getReplicaState(replica),
+                            where);
                     coordinatorContext.putReplicaStateIfNotExists(
                             replica, ReplicaState.NonExistentReplica);
                 });
