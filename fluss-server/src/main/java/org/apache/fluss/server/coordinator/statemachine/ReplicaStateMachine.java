@@ -205,7 +205,7 @@ public class ReplicaStateMachine {
                 replica -> {
                     LOG.info(
                             "Handling state changes for replica {} to state {}. current state {}",
-                            replicas,
+                            replica,
                             targetState,
                             coordinatorContext.getReplicaState(replica));
                     coordinatorContext.putReplicaStateIfNotExists(
