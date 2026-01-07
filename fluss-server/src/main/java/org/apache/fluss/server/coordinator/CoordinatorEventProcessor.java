@@ -1429,7 +1429,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
             TableBucket tableBucket, ReplicaReassignment reassignment) throws Exception {
         LeaderAndIsr leaderAndIsr = zooKeeperClient.getLeaderAndIsr(tableBucket).get();
         List<Integer> isr = leaderAndIsr.isr();
-        List<Integer> targetReplicas = reassignment.getTargetReplicas();
+        List<Integer> targetReplicas = reassignment.getReplicas();
         return targetReplicas.isEmpty() || new HashSet<>(isr).containsAll(targetReplicas);
     }
 
@@ -2107,6 +2107,10 @@ public class CoordinatorEventProcessor implements EventProcessor {
             newRemovingReplicas.removeAll(targetReplicas);
 
             return new ReplicaReassignment(fullReplicaSet, newAddingReplicas, newRemovingReplicas);
+        }
+
+        private List<Integer> getReplicas() {
+            return replicas;
         }
 
         private List<Integer> getTargetReplicas() {
