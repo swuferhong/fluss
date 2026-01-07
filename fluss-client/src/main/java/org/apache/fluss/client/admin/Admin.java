@@ -23,6 +23,8 @@ import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.cluster.ServerNode;
 import org.apache.fluss.cluster.rebalance.GoalType;
+import org.apache.fluss.cluster.rebalance.RebalancePlan;
+import org.apache.fluss.cluster.rebalance.RebalanceProgress;
 import org.apache.fluss.cluster.rebalance.ServerTag;
 import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.cluster.AlterConfig;
@@ -65,6 +67,8 @@ import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.security.acl.AclBinding;
 import org.apache.fluss.security.acl.AclBindingFilter;
+
+import javax.annotation.Nullable;
 
 import java.util.Collection;
 import java.util.List;
@@ -576,9 +580,12 @@ public interface Admin extends AutoCloseable {
      *   <li>{@link NoRebalanceInProgressException} If there are no rebalance tasks in progress.
      * </ul>
      *
+     * @param rebalanceId the rebalance id to list progress, if it is null means list the latest
+     *     rebalance task's process. If rebalance id is not exists in server, empty rebalance result
+     *     will be returned.
      * @return the rebalance process.
      */
-    CompletableFuture<RebalanceProgress> listRebalanceProgress();
+    CompletableFuture<RebalanceProgress> listRebalanceProgress(@Nullable String rebalanceId);
 
     /**
      * Cannel the rebalance task.
@@ -586,8 +593,13 @@ public interface Admin extends AutoCloseable {
      * <ul>
      *   <li>{@link AuthorizationException} If the authenticated user doesn't have cluster
      *       permissions.
-     *   <li>{@link NoRebalanceInProgressException} If there are no rebalance tasks in progress.
+     *   <li>{@link NoRebalanceInProgressException} If there are no rebalance tasks in progress or
+     *       the rebalance id is not exists.
      * </ul>
+     *
+     * @param rebalanceId the rebalance id to cancel, if it is null means cancel the exists
+     *     rebalance task. If rebalanceId is not exists in server, {@link
+     *     NoRebalanceInProgressException} will be thrown.
      */
-    CompletableFuture<Void> cancelRebalance();
+    CompletableFuture<Void> cancelRebalance(@Nullable String rebalanceId);
 }
