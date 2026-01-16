@@ -1743,7 +1743,7 @@ public class ConfigOptions {
     public static final ConfigOption<Boolean> KV_CACHE_INDEX_AND_FILTER_BLOCKS =
             key("kv.rocksdb.block.cache-index-and-filter-blocks")
                     .booleanType()
-                    .defaultValue(false)
+                    .defaultValue(true)
                     .withDescription(
                             "If true, index and filter blocks will be stored in block cache, "
                                     + "together with all other data blocks. This helps to limit memory usage "
