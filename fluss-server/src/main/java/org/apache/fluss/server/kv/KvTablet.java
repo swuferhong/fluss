@@ -146,7 +146,8 @@ public final class KvTablet {
             RowMerger rowMerger,
             ArrowCompressionInfo arrowCompressionInfo,
             SchemaGetter schemaGetter,
-            ChangelogImage changelogImage, AutoIncrementManager autoIncrementManager) {
+            ChangelogImage changelogImage,
+            AutoIncrementManager autoIncrementManager) {
         this.physicalPath = physicalPath;
         this.tableBucket = tableBucket;
         this.logTablet = logTablet;
@@ -199,7 +200,8 @@ public final class KvTablet {
                 rowMerger,
                 arrowCompressionInfo,
                 schemaGetter,
-                changelogImage, autoIncrementManager);
+                changelogImage,
+                autoIncrementManager);
     }
 
     private static RocksDBKv buildRocksDBKv(
