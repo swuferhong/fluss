@@ -52,7 +52,6 @@ import org.apache.fluss.server.kv.prewrite.KvPreWriteBuffer.TruncateReason;
 import org.apache.fluss.server.kv.rocksdb.RocksDBKv;
 import org.apache.fluss.server.kv.rocksdb.RocksDBKvBuilder;
 import org.apache.fluss.server.kv.rocksdb.RocksDBResourceContainer;
-import org.apache.fluss.server.kv.rocksdb.RocksDBStatistics;
 import org.apache.fluss.server.kv.rowmerger.DefaultRowMerger;
 import org.apache.fluss.server.kv.rowmerger.RowMerger;
 import org.apache.fluss.server.kv.snapshot.KvFileHandleAndLocalPath;
@@ -123,9 +122,6 @@ public final class KvTablet {
     // the changelog image mode for this tablet
     private final ChangelogImage changelogImage;
 
-    // RocksDB statistics accessor for this tablet
-    @Nullable private final RocksDBStatistics rocksDBStatistics;
-
     /**
      * The kv data in pre-write buffer whose log offset is less than the flushedLogOffset has been
      * flushed into kv.
@@ -150,9 +146,7 @@ public final class KvTablet {
             RowMerger rowMerger,
             ArrowCompressionInfo arrowCompressionInfo,
             SchemaGetter schemaGetter,
-            ChangelogImage changelogImage,
-            @Nullable RocksDBStatistics rocksDBStatistics,
-            AutoIncrementManager autoIncrementManager) {
+            ChangelogImage changelogImage, AutoIncrementManager autoIncrementManager) {
         this.physicalPath = physicalPath;
         this.tableBucket = tableBucket;
         this.logTablet = logTablet;
@@ -169,7 +163,6 @@ public final class KvTablet {
         this.arrowCompressionInfo = arrowCompressionInfo;
         this.schemaGetter = schemaGetter;
         this.changelogImage = changelogImage;
-        this.rocksDBStatistics = rocksDBStatistics;
         this.autoIncrementManager = autoIncrementManager;
     }
 
@@ -191,19 +184,6 @@ public final class KvTablet {
             AutoIncrementManager autoIncrementManager)
             throws IOException {
         RocksDBKv kv = buildRocksDBKv(serverConf, kvTabletDir, sharedRateLimiter);
-
-        // Create RocksDB statistics accessor (will be registered to TableMetricGroup by Replica)
-        // Pass ResourceGuard to ensure thread-safe access during concurrent close operations
-        // Pass ColumnFamilyHandle for column family specific properties like num-files-at-level0
-        // Pass Cache for accurate block cache memory tracking
-        RocksDBStatistics rocksDBStatistics =
-                new RocksDBStatistics(
-                        kv.getDb(),
-                        kv.getStatistics(),
-                        kv.getResourceGuard(),
-                        kv.getDefaultColumnFamilyHandle(),
-                        kv.getBlockCache());
-
         return new KvTablet(
                 tablePath,
                 tableBucket,
@@ -219,17 +199,14 @@ public final class KvTablet {
                 rowMerger,
                 arrowCompressionInfo,
                 schemaGetter,
-                changelogImage,
-                rocksDBStatistics,
-                autoIncrementManager);
+                changelogImage, autoIncrementManager);
     }
 
     private static RocksDBKv buildRocksDBKv(
             Configuration configuration, File kvDir, RateLimiter sharedRateLimiter)
             throws IOException {
-        // Enable statistics to support RocksDB statistics collection
         RocksDBResourceContainer rocksDBResourceContainer =
-                new RocksDBResourceContainer(configuration, kvDir, true, sharedRateLimiter);
+                new RocksDBResourceContainer(configuration, kvDir, false, sharedRateLimiter);
         RocksDBKvBuilder rocksDBKvBuilder =
                 new RocksDBKvBuilder(
                         kvDir,
@@ -253,16 +230,6 @@ public final class KvTablet {
 
     public File getKvTabletDir() {
         return kvTabletDir;
-    }
-
-    /**
-     * Get RocksDB statistics accessor for this tablet.
-     *
-     * @return the RocksDB statistics accessor, or null if not available
-     */
-    @Nullable
-    public RocksDBStatistics getRocksDBStatistics() {
-        return rocksDBStatistics;
     }
 
     void setFlushedLogOffset(long flushedLogOffset) {
@@ -680,8 +647,6 @@ public final class KvTablet {
                     if (isClosed) {
                         return;
                     }
-                    // Note: RocksDB metrics lifecycle is managed by TableMetricGroup
-                    // No need to close it here
                     if (rocksDBKv != null) {
                         rocksDBKv.close();
                     }

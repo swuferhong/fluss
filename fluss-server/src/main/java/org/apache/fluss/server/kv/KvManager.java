@@ -404,7 +404,6 @@ public final class KvManager extends TabletManagerBase implements ServerReconfig
                             currentKvs.get(tableBucket).getKvTabletDir().getAbsolutePath()));
         }
         this.currentKvs.put(tableBucket, kvTablet);
-
         return kvTablet;
     }
 

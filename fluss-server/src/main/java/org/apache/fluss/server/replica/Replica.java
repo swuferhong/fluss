@@ -597,10 +597,6 @@ public final class Replica {
             IOUtils.closeQuietly(closeableRegistryForKv);
         }
         if (kvTablet != null) {
-            // Unregister RocksDB statistics before dropping KvTablet
-            // This ensures statistics are cleaned up when KvTablet is destroyed
-            bucketMetricGroup.unregisterRocksDBStatistics();
-
             // drop the kv tablet
             checkNotNull(kvManager);
             kvManager.dropKv(tableBucket);
@@ -694,12 +690,6 @@ public final class Replica {
                 physicalPath,
                 tableBucket,
                 endTime - startTime);
-
-        // Register RocksDB statistics to BucketMetricGroup
-        if (kvTablet != null && kvTablet.getRocksDBStatistics() != null) {
-            bucketMetricGroup.registerRocksDBStatistics(kvTablet.getRocksDBStatistics());
-        }
-
         return optCompletedSnapshot;
     }
 
