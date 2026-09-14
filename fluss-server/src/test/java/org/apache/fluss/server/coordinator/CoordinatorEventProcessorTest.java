@@ -46,7 +46,10 @@ import org.apache.fluss.rpc.messages.ApiMessage;
 import org.apache.fluss.rpc.messages.CommitKvSnapshotResponse;
 import org.apache.fluss.rpc.messages.CommitRemoteLogManifestResponse;
 import org.apache.fluss.rpc.messages.NotifyKvSnapshotOffsetRequest;
+import org.apache.fluss.rpc.messages.NotifyLeaderAndIsrRequest;
 import org.apache.fluss.rpc.messages.NotifyRemoteLogOffsetsRequest;
+import org.apache.fluss.rpc.messages.PbNotifyLeaderAndIsrReqForBucket;
+import org.apache.fluss.rpc.messages.RebalanceResponse;
 import org.apache.fluss.rpc.messages.UpdateMetadataRequest;
 import org.apache.fluss.rpc.messages.UpdateMetadataResponse;
 import org.apache.fluss.rpc.protocol.ApiError;
@@ -59,10 +62,12 @@ import org.apache.fluss.server.coordinator.event.CommitRemoteLogManifestEvent;
 import org.apache.fluss.server.coordinator.event.CoordinatorEventManager;
 import org.apache.fluss.server.coordinator.event.NotifyLeaderAndIsrRequestContext;
 import org.apache.fluss.server.coordinator.event.NotifyLeaderAndIsrResponseReceivedEvent;
+import org.apache.fluss.server.coordinator.event.RebalanceEvent;
 import org.apache.fluss.server.coordinator.event.RebalanceTaskTimeoutEvent;
 import org.apache.fluss.server.coordinator.event.ReconcileRebalanceTaskEvent;
 import org.apache.fluss.server.coordinator.event.RetryOfflineLeaderEvent;
 import org.apache.fluss.server.coordinator.rebalance.RebalanceExecutionKey;
+import org.apache.fluss.server.coordinator.rebalance.goal.ReplicaDistributionGoal;
 import org.apache.fluss.server.coordinator.remote.RemoteDirDynamicLoader;
 import org.apache.fluss.server.coordinator.statemachine.BucketState;
 import org.apache.fluss.server.coordinator.statemachine.ReplicaState;
@@ -85,6 +90,7 @@ import org.apache.fluss.server.zk.ZooKeeperClient;
 import org.apache.fluss.server.zk.data.BucketAssignment;
 import org.apache.fluss.server.zk.data.LeaderAndIsr;
 import org.apache.fluss.server.zk.data.PartitionAssignment;
+import org.apache.fluss.server.zk.data.RebalanceTask;
 import org.apache.fluss.server.zk.data.TableAssignment;
 import org.apache.fluss.server.zk.data.TabletServerRegistration;
 import org.apache.fluss.server.zk.data.ZkData;
@@ -92,11 +98,14 @@ import org.apache.fluss.server.zk.data.ZkVersion;
 import org.apache.fluss.testutils.common.ManuallyTriggeredScheduledExecutorService;
 import org.apache.fluss.types.DataTypes;
 import org.apache.fluss.utils.ExceptionUtils;
+import org.apache.fluss.utils.clock.ManualClock;
 import org.apache.fluss.utils.clock.SystemClock;
 import org.apache.fluss.utils.types.Tuple2;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -104,6 +113,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -2461,6 +2471,388 @@ class CoordinatorEventProcessorTest extends CoordinatorEventProcessorTestBase {
         verifyIsr(tb2, 1, Arrays.asList(0, 1, 2));
     }
 
+    @ParameterizedTest(name = "restart from Phase {0}")
+    @ValueSource(strings = {"A", "B"})
+    void testRestartRecoversRebalanceFromIntermediateState(String phase) throws Exception {
+        ConcurrentLinkedDeque<ControlledNotifyTrigger> oldResponses = new ConcurrentLinkedDeque<>();
+        ConcurrentLinkedDeque<ControlledNotifyTrigger> recoveredResponses =
+                new ConcurrentLinkedDeque<>();
+        registerTabletServer(3);
+        try {
+            initCoordinatorChannel();
+            List<Integer> originReplicas = Arrays.asList(0, 1, 3);
+            List<Integer> targetReplicas = Arrays.asList(0, 1, 2);
+            List<Integer> unionReplicas = Arrays.asList(0, 1, 2, 3);
+            long tableId =
+                    metadataManager.createTable(
+                            TablePath.of(defaultDatabase, "restart_rebalance_phase_" + phase),
+                            remoteDataDir,
+                            TEST_TABLE,
+                            new TableAssignment(
+                                    Collections.singletonMap(
+                                            0, new BucketAssignment(originReplicas))),
+                            false);
+            TableBucket tableBucket = new TableBucket(tableId, 0);
+            verifyIsr(tableBucket, 0, originReplicas);
+            installBlockingNotifyGateways(oldResponses);
+
+            String rebalanceId = "restart-phase-" + phase;
+            Map<TableBucket, RebalancePlanForBucket> plan =
+                    Collections.singletonMap(
+                            tableBucket,
+                            new RebalancePlanForBucket(
+                                    tableBucket, 0, 0, originReplicas, targetReplicas));
+            RebalanceTask persistedTask =
+                    new RebalanceTask(rebalanceId, RebalanceStatus.NOT_STARTED, plan);
+            zookeeperClient.registerRebalanceTask(persistedTask);
+            fromCtx(
+                    ctx -> {
+                        eventProcessor
+                                .getRebalanceManager()
+                                .registerRebalance(rebalanceId, plan, RebalanceStatus.NOT_STARTED);
+                        return null;
+                    });
+            assertThat(zookeeperClient.getTableAssignment(tableId).get().getBucketAssignment(0))
+                    .isEqualTo(new BucketAssignment(unionReplicas));
+
+            if ("B".equals(phase)) {
+                // Reach Phase B through ISR expansion, but hold back the final leader ACK.
+                adjustRebalanceIsr(tableBucket, unionReplicas);
+                verifyIsr(tableBucket, 0, targetReplicas);
+                // A target falls out of ISR before completion. The persisted assignment is at
+                // the target, but the next coordinator must still resume this unfinished phase.
+                adjustRebalanceIsr(tableBucket, Arrays.asList(0, 1));
+            }
+            List<Integer> intermediateAssignment =
+                    "B".equals(phase) ? targetReplicas : unionReplicas;
+            List<Integer> intermediateIsr =
+                    "B".equals(phase) ? Arrays.asList(0, 1) : originReplicas;
+            verifyIsr(tableBucket, 0, intermediateIsr);
+            assertThat(zookeeperClient.getTableAssignment(tableId).get().getBucketAssignment(0))
+                    .isEqualTo(new BucketAssignment(intermediateAssignment));
+            assertThat(rebalanceStatus(tableBucket)).isEqualTo(RebalanceStatus.REBALANCING);
+            assertThat(zookeeperClient.getRebalanceTask()).hasValue(persistedTask);
+
+            retry(
+                    Duration.ofMinutes(1),
+                    () -> assertThat(hasPendingNotifyTrigger(oldResponses, 0)).isTrue());
+            ControlledNotifyTrigger oldResponse =
+                    oldResponses.stream()
+                            .filter(response -> response.getResponseServerId() == 0)
+                            .findFirst()
+                            .get();
+            NotifyLeaderAndIsrRequest oldRequest = oldResponse.getRequest();
+            assertThat(oldRequest.getNotifyBucketsLeaderReqsList()).hasSize(1);
+            PbNotifyLeaderAndIsrReqForBucket oldBucketRequest =
+                    oldRequest.getNotifyBucketsLeaderReqsList().get(0);
+            RebalanceExecutionKey executionKey =
+                    eventProcessor.getRebalanceManager().getExecutionKey(tableBucket);
+
+            eventProcessor.shutdown();
+            testCoordinatorChannelManager.close();
+            zkEpoch = zookeeperClient.fenceBecomeCoordinatorLeader("2");
+            testCoordinatorChannelManager = new TestCoordinatorChannelManager();
+            installBlockingNotifyGateways(recoveredResponses);
+            eventProcessor = buildCoordinatorEventProcessor();
+            // Startup must load ZooKeeper state, consume the recovery event and dispatch the
+            // plan automatically. Do not invoke recoverRebalance or registerRebalance again.
+            eventProcessor.startup();
+            assertThat(eventProcessor.getCoordinatorEpoch())
+                    .isGreaterThan(oldRequest.getCoordinatorEpoch());
+            retry(
+                    Duration.ofMinutes(1),
+                    () ->
+                            assertThat(
+                                            eventProcessor
+                                                    .getRebalanceManager()
+                                                    .getExecutionKey(tableBucket))
+                                    .isEqualTo(executionKey));
+            verifyIsr(tableBucket, 0, intermediateIsr);
+            List<Integer> recoveredAssignment = fromCtx(ctx -> ctx.getAssignment(tableBucket));
+            assertThat(recoveredAssignment).containsExactlyElementsOf(intermediateAssignment);
+
+            // The new leader reports catch-up. Keep its final ACK blocked so a stale success
+            // would visibly and incorrectly complete the recovered attempt.
+            adjustRebalanceIsr(tableBucket, "B".equals(phase) ? targetReplicas : unionReplicas);
+            verifyIsr(tableBucket, 0, targetReplicas);
+            LeaderAndIsr current = fromCtx(ctx -> ctx.getBucketLeaderAndIsr(tableBucket).get());
+            NotifyLeaderAndIsrRequestContext oldContext =
+                    new NotifyLeaderAndIsrRequestContext(
+                            oldRequest.getCoordinatorEpoch(),
+                            oldBucketRequest.getLeader(),
+                            oldBucketRequest.getLeaderEpoch(),
+                            oldBucketRequest.getBucketEpoch(),
+                            executionKey);
+            // Also isolate the coordinator-epoch fence: after restart the rebalance id and
+            // bucket are unchanged, so rejecting a different execution key is insufficient.
+            NotifyLeaderAndIsrRequestContext oldEpochContext =
+                    new NotifyLeaderAndIsrRequestContext(
+                            oldRequest.getCoordinatorEpoch(),
+                            current.leader(),
+                            current.leaderEpoch(),
+                            current.bucketEpoch(),
+                            executionKey);
+            oldResponse.complete(null);
+            for (NotifyLeaderAndIsrRequestContext staleContext :
+                    Arrays.asList(oldContext, oldEpochContext)) {
+                eventProcessor
+                        .getCoordinatorEventManager()
+                        .put(
+                                new NotifyLeaderAndIsrResponseReceivedEvent(
+                                        Collections.singletonList(
+                                                new NotifyLeaderAndIsrResultForBucket(tableBucket)),
+                                        current.leader(),
+                                        Collections.singletonMap(tableBucket, staleContext)));
+                fromCtx(ctx -> null);
+                assertThat(rebalanceStatus(tableBucket)).isEqualTo(RebalanceStatus.REBALANCING);
+                assertThat(zookeeperClient.getRebalanceTask()).hasValue(persistedTask);
+            }
+
+            retry(
+                    Duration.ofMinutes(1),
+                    () -> {
+                        drainPendingNotifyTriggers(recoveredResponses);
+                        assertThat(eventProcessor.getRebalanceManager().hasInProgressRebalance())
+                                .isFalse();
+                        assertThat(zookeeperClient.getRebalanceTask())
+                                .hasValue(
+                                        new RebalanceTask(
+                                                rebalanceId, RebalanceStatus.COMPLETED, plan));
+                    });
+            assertThat(rebalanceStatus(tableBucket)).isEqualTo(RebalanceStatus.COMPLETED);
+            List<Integer> finalAssignment = fromCtx(ctx -> ctx.getAssignment(tableBucket));
+            assertThat(finalAssignment).containsExactlyElementsOf(targetReplicas);
+            assertThat(zookeeperClient.getTableAssignment(tableId).get().getBucketAssignment(0))
+                    .isEqualTo(new BucketAssignment(targetReplicas));
+            verifyIsr(tableBucket, 0, targetReplicas);
+        } finally {
+            initCoordinatorChannel();
+            drainPendingNotifyTriggers(oldResponses);
+            drainPendingNotifyTriggers(recoveredResponses);
+            zookeeperClient.deleteRebalanceTask();
+            ZOO_KEEPER_EXTENSION_WRAPPER
+                    .getCustomExtension()
+                    .cleanupPath(ZkData.ServerIdZNode.path(3));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testNewRebalanceConvergesAfterFailureAndRestart(boolean targetUnavailable)
+            throws Exception {
+        ConcurrentLinkedDeque<ControlledNotifyTrigger> pendingResponses =
+                new ConcurrentLinkedDeque<>();
+        ManualClock clock = new ManualClock(0L);
+        eventProcessor.shutdown();
+        zookeeperClient.deleteRebalanceTask();
+        eventProcessor = buildCoordinatorEventProcessor(clock);
+        eventProcessor.startup();
+        registerTabletServer(3);
+        try {
+            initCoordinatorChannel();
+            List<Integer> origin = Arrays.asList(0, 1, 2);
+            long tableId =
+                    metadataManager.createTable(
+                            TablePath.of(defaultDatabase, "rebalance_after_failure"),
+                            remoteDataDir,
+                            TEST_TABLE,
+                            new TableAssignment(
+                                    Collections.singletonMap(0, new BucketAssignment(origin))),
+                            false);
+            TableBucket bucket = new TableBucket(tableId, 0);
+            verifyIsr(bucket, 0, origin);
+            installBlockingNotifyGateways(pendingResponses);
+            Map<TableBucket, RebalancePlanForBucket> plan =
+                    Collections.singletonMap(
+                            bucket,
+                            new RebalancePlanForBucket(
+                                    bucket, 0, 0, origin, Arrays.asList(0, 1, 3)));
+            String failedId = "failed-before-restart";
+            zookeeperClient.registerRebalanceTask(
+                    new RebalanceTask(failedId, RebalanceStatus.NOT_STARTED, plan));
+            fromCtx(
+                    ctx -> {
+                        eventProcessor
+                                .getRebalanceManager()
+                                .registerRebalance(failedId, plan, RebalanceStatus.NOT_STARTED);
+                        return null;
+                    });
+            if (targetUnavailable) {
+                ZOO_KEEPER_EXTENSION_WRAPPER
+                        .getCustomExtension()
+                        .cleanupPath(ZkData.ServerIdZNode.path(3));
+                retryVerifyContext(ctx -> assertThat(ctx.liveTabletServerSet()).doesNotContain(3));
+            }
+            RebalanceExecutionKey key =
+                    eventProcessor.getRebalanceManager().getExecutionKey(bucket);
+            eventProcessor.getCoordinatorEventManager().put(new RebalanceTaskTimeoutEvent(key));
+            retry(
+                    Duration.ofMinutes(1),
+                    () -> assertThat(rebalanceStatus(bucket)).isEqualTo(RebalanceStatus.TIMEOUT));
+            // Wait for the immediate reconciliation to establish the unavailable-target timer.
+            fromCtx(ctx -> null);
+            clock.advanceTime(targetUnavailable ? Duration.ofMinutes(31) : Duration.ofHours(25));
+            eventProcessor.getCoordinatorEventManager().put(new ReconcileRebalanceTaskEvent(key));
+            retry(
+                    Duration.ofMinutes(1),
+                    () -> assertThat(rebalanceStatus(bucket)).isEqualTo(RebalanceStatus.FAILED));
+            assertThat(eventProcessor.getRebalanceManager().hasInProgressRebalance()).isFalse();
+            assertThat(zookeeperClient.getRebalanceTask().get().getRebalanceStatus())
+                    .isEqualTo(RebalanceStatus.FAILED);
+            assertThat(
+                            zookeeperClient
+                                    .getTableAssignment(tableId)
+                                    .get()
+                                    .getBucketAssignment(0)
+                                    .getReplicas())
+                    .containsExactlyInAnyOrder(0, 1, 2, 3);
+
+            eventProcessor.shutdown();
+            testCoordinatorChannelManager.close();
+            zkEpoch = zookeeperClient.fenceBecomeCoordinatorLeader("2");
+            testCoordinatorChannelManager = new TestCoordinatorChannelManager();
+            initCoordinatorChannel();
+            eventProcessor = buildCoordinatorEventProcessor(clock);
+            eventProcessor.startup();
+            // Use the normal request path, including model construction, optimization and
+            // execution.
+            CompletableFuture<RebalanceResponse> response = new CompletableFuture<>();
+            eventProcessor
+                    .getCoordinatorEventManager()
+                    .put(
+                            new RebalanceEvent(
+                                    Collections.singletonList(new ReplicaDistributionGoal()),
+                                    response));
+            response.get();
+            assertThat(eventProcessor.getRebalanceManager().getRebalanceId())
+                    .isNotEqualTo(failedId);
+            retry(
+                    Duration.ofMinutes(1),
+                    () -> {
+                        assertThat(rebalanceStatus(bucket)).isEqualTo(RebalanceStatus.COMPLETED);
+                        assertThat(eventProcessor.getRebalanceManager().hasInProgressRebalance())
+                                .isFalse();
+                        assertThat(zookeeperClient.getRebalanceTask().get().getRebalanceStatus())
+                                .isEqualTo(RebalanceStatus.COMPLETED);
+                    });
+            assertThat(zookeeperClient.getTableAssignment(tableId).get().getBucketAssignment(0))
+                    .isEqualTo(new BucketAssignment(origin));
+            verifyIsr(bucket, 0, origin);
+        } finally {
+            initCoordinatorChannel();
+            drainPendingNotifyTriggers(pendingResponses);
+            zookeeperClient.deleteRebalanceTask();
+            ZOO_KEEPER_EXTENSION_WRAPPER
+                    .getCustomExtension()
+                    .cleanupPath(ZkData.ServerIdZNode.path(3));
+        }
+    }
+
+    @Test
+    void testRestartAfterCancellationDoesNotStartPendingBucketWithShrunkIsr() throws Exception {
+        ConcurrentLinkedDeque<ControlledNotifyTrigger> oldResponses = new ConcurrentLinkedDeque<>();
+        ConcurrentLinkedDeque<ControlledNotifyTrigger> recoveredResponses =
+                new ConcurrentLinkedDeque<>();
+        registerTabletServer(3);
+        try {
+            initCoordinatorChannel();
+            List<Integer> origin = Arrays.asList(0, 1, 2);
+            List<Integer> target = Arrays.asList(0, 1, 3);
+            Map<Integer, BucketAssignment> assignments = new HashMap<>();
+            assignments.put(0, new BucketAssignment(origin));
+            assignments.put(1, new BucketAssignment(origin));
+            long tableId =
+                    metadataManager.createTable(
+                            TablePath.of(defaultDatabase, "cancel_pending_rebalance"),
+                            remoteDataDir,
+                            TEST_TABLE,
+                            new TableAssignment(assignments),
+                            false);
+            TableBucket running = new TableBucket(tableId, 0);
+            TableBucket pending = new TableBucket(tableId, 1);
+            verifyIsr(running, 0, origin);
+            verifyIsr(pending, 0, origin);
+            adjustRebalanceIsr(pending, Arrays.asList(0, 1));
+            installBlockingNotifyGateways(oldResponses);
+            Map<TableBucket, RebalancePlanForBucket> plan = new LinkedHashMap<>();
+            plan.put(running, new RebalancePlanForBucket(running, 0, 0, origin, target));
+            plan.put(pending, new RebalancePlanForBucket(pending, 0, 0, origin, target));
+            String rebalanceId = "cancel-before-restart";
+            zookeeperClient.registerRebalanceTask(
+                    new RebalanceTask(rebalanceId, RebalanceStatus.NOT_STARTED, plan));
+            fromCtx(
+                    ctx -> {
+                        eventProcessor
+                                .getRebalanceManager()
+                                .registerRebalance(rebalanceId, plan, RebalanceStatus.NOT_STARTED);
+                        eventProcessor.getRebalanceManager().cancelRebalance(rebalanceId);
+                        return null;
+                    });
+            assertThat(rebalanceStatus(pending)).isEqualTo(RebalanceStatus.CANCELED);
+            assertThat(zookeeperClient.getRebalanceTask().get().isCancelRequested()).isTrue();
+            assertThat(eventProcessor.getRebalanceManager().hasInProgressRebalance()).isTrue();
+
+            eventProcessor.shutdown();
+            testCoordinatorChannelManager.close();
+            zkEpoch = zookeeperClient.fenceBecomeCoordinatorLeader("2");
+            testCoordinatorChannelManager = new TestCoordinatorChannelManager();
+            installBlockingNotifyGateways(recoveredResponses);
+            eventProcessor = buildCoordinatorEventProcessor();
+            eventProcessor.startup();
+            retry(
+                    Duration.ofMinutes(1),
+                    () ->
+                            assertThat(
+                                            eventProcessor
+                                                    .getRebalanceManager()
+                                                    .getExecutionKey(running))
+                                    .isNotNull());
+            assertThat(rebalanceStatus(pending)).isEqualTo(RebalanceStatus.CANCELED);
+            assertThat(eventProcessor.getRebalanceManager().getExecutionKey(pending)).isNull();
+            assertThat(zookeeperClient.getTableAssignment(tableId).get().getBucketAssignment(1))
+                    .isEqualTo(new BucketAssignment(origin));
+            verifyIsr(pending, 0, Arrays.asList(0, 1));
+
+            adjustRebalanceIsr(running, Arrays.asList(0, 1, 2, 3));
+            retry(
+                    Duration.ofMinutes(1),
+                    () -> {
+                        drainPendingNotifyTriggers(recoveredResponses);
+                        assertThat(eventProcessor.getRebalanceManager().hasInProgressRebalance())
+                                .isFalse();
+                    });
+            assertThat(zookeeperClient.getRebalanceTask().get().getRebalanceStatus())
+                    .isEqualTo(RebalanceStatus.CANCELED);
+            assertThat(zookeeperClient.getTableAssignment(tableId).get().getBucketAssignment(1))
+                    .isEqualTo(new BucketAssignment(origin));
+            verifyIsr(running, 0, target);
+        } finally {
+            initCoordinatorChannel();
+            drainPendingNotifyTriggers(oldResponses);
+            drainPendingNotifyTriggers(recoveredResponses);
+            zookeeperClient.deleteRebalanceTask();
+            ZOO_KEEPER_EXTENSION_WRAPPER
+                    .getCustomExtension()
+                    .cleanupPath(ZkData.ServerIdZNode.path(3));
+        }
+    }
+
+    private void adjustRebalanceIsr(TableBucket tableBucket, List<Integer> isr) throws Exception {
+        LeaderAndIsr current = fromCtx(ctx -> ctx.getBucketLeaderAndIsr(tableBucket).get());
+        assertThat(
+                        submitAdjustIsr(
+                                        tableBucket,
+                                        new LeaderAndIsr(
+                                                current.leader(),
+                                                current.leaderEpoch(),
+                                                isr,
+                                                Collections.emptyList(),
+                                                current.coordinatorEpoch(),
+                                                current.bucketEpoch()))
+                                .succeeded())
+                .isTrue();
+    }
+
     @Test
     void testRebalanceRecoveryStateClassification() throws Exception {
         // The classification only reads the coordinator state that recovery has just loaded.
@@ -2471,6 +2863,9 @@ class CoordinatorEventProcessorTest extends CoordinatorEventProcessorTestBase {
                 new RebalancePlanForBucket(
                         tableBucket, 0, 1, Arrays.asList(0, 1, 2), Arrays.asList(1, 0, 3));
         assertThat(eventProcessor.isRebalanceTaskComplete(plan)).isFalse();
+        assertThat(eventProcessor.isRebalanceTaskAtOrigin(plan)).isTrue();
+
+        putBucketState(tableBucket, 0, Arrays.asList(0, 1), Arrays.asList(0, 1, 2));
         assertThat(eventProcessor.isRebalanceTaskAtOrigin(plan)).isTrue();
 
         // Origin assignment with a leftover adding replica in ISR is not clean.

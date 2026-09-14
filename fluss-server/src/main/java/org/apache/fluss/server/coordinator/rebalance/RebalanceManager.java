@@ -23,9 +23,13 @@ import org.apache.fluss.cluster.rebalance.RebalanceProgress;
 import org.apache.fluss.cluster.rebalance.RebalanceResultForBucket;
 import org.apache.fluss.cluster.rebalance.RebalanceStatus;
 import org.apache.fluss.cluster.rebalance.ServerTag;
+import org.apache.fluss.config.ConfigOption;
+import org.apache.fluss.config.ConfigOptions;
+import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.NoRebalanceInProgressException;
 import org.apache.fluss.exception.RebalanceFailureException;
 import org.apache.fluss.metadata.TableBucket;
+import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.server.coordinator.CoordinatorContext;
 import org.apache.fluss.server.coordinator.event.EventManager;
 import org.apache.fluss.server.coordinator.event.FinalizeRebalanceEvent;
@@ -51,8 +55,10 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -74,6 +80,7 @@ import static org.apache.fluss.cluster.rebalance.RebalanceStatus.FINAL_STATUSES;
 import static org.apache.fluss.cluster.rebalance.RebalanceStatus.NOT_STARTED;
 import static org.apache.fluss.cluster.rebalance.RebalanceStatus.REBALANCING;
 import static org.apache.fluss.cluster.rebalance.RebalanceStatus.TIMEOUT;
+import static org.apache.fluss.server.coordinator.rebalance.goal.GoalOptimizerUtils.getDiff;
 import static org.apache.fluss.utils.Preconditions.checkArgument;
 import static org.apache.fluss.utils.Preconditions.checkState;
 
@@ -97,31 +104,14 @@ public class RebalanceManager {
     /** Hardcoded upper bound for the exponential reconciliation backoff: 5 minutes. */
     private static final long MAX_RECONCILE_BACKOFF_MS = 5 * 60 * 1000L;
 
-    /**
-     * Hardcoded time after which a timed-out task is given up on while it cannot make progress at
-     * all, because a target replica is not hosted by a live tablet server: 30 minutes.
-     */
-    private static final long TARGET_UNAVAILABLE_TIMEOUT_MS = 30 * 60 * 1000L;
-
-    /**
-     * Hardcoded time after which a timed-out task is given up on even though its target replicas
-     * are live: 24 hours. This is only a safety net that keeps a rebalance from staying non-final
-     * forever, a single bucket that does not change any observable state for that long is broken.
-     */
-    private static final long NO_PROGRESS_TIMEOUT_MS = 24 * 60 * 60 * 1000L;
-
-    /**
-     * Hardcoded upper bound on the number of timed-out tasks tracked at the same time. Every
-     * tracked task keeps costing coordinator and ZooKeeper work on each reconciliation, and each
-     * admitted task adds one more concurrent replica migration.
-     */
-    private static final int MAX_TRACKED_TIMED_OUT_TASKS = 8;
-
     private final ZooKeeperClient zkClient;
     private final RebalanceExecutor rebalanceExecutor;
     private final EventManager eventManager;
     private final Clock clock;
     private final ScheduledExecutorService timeoutChecker;
+    private final long targetUnavailableTimeoutMs;
+    private final long noProgressTimeoutMs;
+    private final int maxTrackedTimedOutTasks;
 
     /** A queue of bucket tasks that have not started. */
     private final Queue<TableBucket> pendingRebalanceTasks = new ArrayDeque<>();
@@ -153,16 +143,19 @@ public class RebalanceManager {
     private boolean finalizationEventQueued;
     private boolean isClosed = false;
 
+    /** Creates a manager with validated coordinator rebalance settings. */
     public RebalanceManager(
             RebalanceExecutor rebalanceExecutor,
             ZooKeeperClient zkClient,
             EventManager eventManager,
-            Clock clock) {
+            Clock clock,
+            Configuration conf) {
         this(
                 rebalanceExecutor,
                 zkClient,
                 eventManager,
                 clock,
+                conf,
                 // TODO: Reuse the CoordinatorServer shared scheduler for this lightweight
                 // coordinator timeout checker instead of creating a component-owned scheduler.
                 Executors.newScheduledThreadPool(
@@ -175,7 +168,20 @@ public class RebalanceManager {
             ZooKeeperClient zkClient,
             EventManager eventManager,
             Clock clock,
+            Configuration conf,
             ScheduledExecutorService timeoutChecker) {
+        this.targetUnavailableTimeoutMs =
+                getTimeoutMillis(
+                        conf, ConfigOptions.COORDINATOR_REBALANCE_TARGET_UNAVAILABLE_TIMEOUT);
+        this.noProgressTimeoutMs =
+                getTimeoutMillis(conf, ConfigOptions.COORDINATOR_REBALANCE_NO_PROGRESS_TIMEOUT);
+        this.maxTrackedTimedOutTasks =
+                conf.get(ConfigOptions.COORDINATOR_REBALANCE_MAX_TRACKED_TIMED_OUT_TASKS);
+        checkArgument(
+                maxTrackedTimedOutTasks > 0,
+                "%s must be at least 1, but was %s.",
+                ConfigOptions.COORDINATOR_REBALANCE_MAX_TRACKED_TIMED_OUT_TASKS.key(),
+                maxTrackedTimedOutTasks);
         this.rebalanceExecutor = rebalanceExecutor;
         this.zkClient = zkClient;
         this.eventManager = eventManager;
@@ -443,8 +449,14 @@ public class RebalanceManager {
         try {
             // Generate the latest cluster model.
             long startTime = System.currentTimeMillis();
-            ClusterModel clusterModel =
-                    buildClusterModel(rebalanceExecutor.getCoordinatorContext());
+            CoordinatorContext context = rebalanceExecutor.getCoordinatorContext();
+            ClusterModel clusterModel = buildClusterModel(context);
+            Map<TableBucket, List<Integer>> actualAssignments = new HashMap<>();
+            Map<TableBucket, Integer> actualLeaders = new HashMap<>();
+            for (TableBucket bucket : clusterModel.getReplicaDistribution().keySet()) {
+                actualAssignments.put(bucket, new ArrayList<>(context.getAssignment(bucket)));
+                actualLeaders.put(bucket, context.getBucketLeaderAndIsr(bucket).get().leader());
+            }
             LOG.info(
                     "Build cluster model for rebalance id {} with {} ms.",
                     rebalanceId,
@@ -452,7 +464,11 @@ public class RebalanceManager {
 
             // do optimize.
             startTime = System.currentTimeMillis();
-            rebalancePlanForBuckets = goalOptimizer.doOptimizeOnce(clusterModel, goalsByPriority);
+            goalOptimizer.doOptimizeOnce(clusterModel, goalsByPriority);
+            // The optimization model excludes excess replicas left by a failed migration. Diff
+            // against the real assignment so that cleanup is still executed and persisted, even
+            // when the requested goals make no further changes to the model.
+            rebalancePlanForBuckets = getDiff(actualAssignments, actualLeaders, clusterModel);
             LOG.info(
                     "Do optimize for rebalance id {} with {} ms.",
                     rebalanceId,
@@ -550,8 +566,8 @@ public class RebalanceManager {
             attempt.onTargetsUnavailable(now);
         }
 
-        if (attempt.blockedForMs(now) > TARGET_UNAVAILABLE_TIMEOUT_MS
-                || now - attempt.lastProgressMs > NO_PROGRESS_TIMEOUT_MS) {
+        if (attempt.blockedForMs(now) > targetUnavailableTimeoutMs
+                || now - attempt.lastProgressMs > noProgressTimeoutMs) {
             LOG.error(
                     "Giving up on rebalance task {} after {} ms without progress, target replicas "
                             + "live: {}. The bucket may be left with the intermediate assignment "
@@ -578,7 +594,7 @@ public class RebalanceManager {
         if (!runningRebalanceTasks.isEmpty()) {
             return;
         }
-        if (timedOutRebalanceTasks.size() >= MAX_TRACKED_TIMED_OUT_TASKS) {
+        if (timedOutRebalanceTasks.size() >= maxTrackedTimedOutTasks) {
             // Stop admitting work until some of the timed-out tasks reach a final status, so that
             // a long cluster operation cannot grow the tracked set, and with it the reconciliation
             // work and the number of concurrent replica migrations, without bound.
@@ -702,6 +718,18 @@ public class RebalanceManager {
         return observed.toString();
     }
 
+    private static long getTimeoutMillis(Configuration conf, ConfigOption<Duration> option) {
+        Duration timeout = conf.get(option);
+        checkArgument(
+                timeout.compareTo(Duration.ofMillis(1)) >= 0
+                        && timeout.compareTo(Duration.ofMillis(Long.MAX_VALUE)) <= 0,
+                "%s must be between 1 ms and %s ms, but was %s.",
+                option.key(),
+                Long.MAX_VALUE,
+                timeout);
+        return timeout.toMillis();
+    }
+
     private static long reconcileBackoffMs(int dispatchedAttempts) {
         long backoff = TIMEOUT_CHECK_INTERVAL_MS << Math.min(dispatchedAttempts, 8);
         return Math.min(backoff, MAX_RECONCILE_BACKOFF_MS);
@@ -751,10 +779,18 @@ public class RebalanceManager {
             }
         }
 
+        // Failed migrations can leave an unavailable target in the persisted assignment. Keep
+        // such servers in the model as ineligible sources so the goals can evacuate their replicas.
+        Set<TableBucket> allBuckets = coordinatorContext.getAllBuckets();
+        for (TableBucket tableBucket : allBuckets) {
+            for (Integer replica : coordinatorContext.getAssignment(tableBucket)) {
+                serverModelMap.computeIfAbsent(
+                        replica, id -> new ServerModel(id, RackModel.DEFAULT_RACK, true));
+            }
+        }
         ClusterModel clusterModel = initialClusterModel(serverModelMap);
 
         // Try to update the cluster model with the latest bucket states.
-        Set<TableBucket> allBuckets = coordinatorContext.getAllBuckets();
         for (TableBucket tableBucket : allBuckets) {
             List<Integer> assignment = coordinatorContext.getAssignment(tableBucket);
             Optional<LeaderAndIsr> bucketLeaderAndIsrOpt =
@@ -771,12 +807,47 @@ public class RebalanceManager {
             if (leader == -1 || !assignment.contains(leader)) {
                 continue;
             }
+            assignment =
+                    assignmentForOptimization(coordinatorContext, tableBucket, assignment, isr);
             for (int i = 0; i < assignment.size(); i++) {
                 int replica = assignment.get(i);
                 clusterModel.createReplica(replica, tableBucket, i, leader == replica);
             }
         }
         return clusterModel;
+    }
+
+    private List<Integer> assignmentForOptimization(
+            CoordinatorContext context,
+            TableBucket bucket,
+            List<Integer> assignment,
+            LeaderAndIsr leaderAndIsr) {
+        TableInfo tableInfo = context.getTableInfoById(bucket.getTableId());
+        int replicationFactor =
+                tableInfo == null
+                        ? assignment.size()
+                        : tableInfo
+                                .getProperties()
+                                .getOptional(ConfigOptions.TABLE_REPLICATION_FACTOR)
+                                .orElse(assignment.size());
+        if (assignment.size() <= replicationFactor) {
+            return assignment;
+        }
+
+        // A Phase A union is not a new replication factor. Prefer the current leader and live,
+        // caught-up replicas when selecting the model's starting assignment. The requested goals
+        // can then relocate these replicas; execution retains the full real origin for cleanup.
+        List<Integer> replicas = new ArrayList<>(assignment);
+        replicas.sort(
+                Comparator.comparing((Integer replica) -> replica != leaderAndIsr.leader())
+                        .thenComparing(replica -> !context.liveTabletServerSet().contains(replica))
+                        .thenComparing(replica -> !leaderAndIsr.isr().contains(replica))
+                        .thenComparing(
+                                replica ->
+                                        context.getServerTag(replica)
+                                                .map(this::isOfflineTagged)
+                                                .orElse(false)));
+        return new ArrayList<>(replicas.subList(0, replicationFactor));
     }
 
     private RebalanceTask buildRebalanceTask(

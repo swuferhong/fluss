@@ -69,7 +69,7 @@ final class ControlledNotifyGateway extends TestTabletServerGateway {
             return super.notifyLeaderAndIsr(request);
         }
         NotifyLeaderAndIsrResponse response = super.notifyLeaderAndIsr(request).join();
-        ControlledNotifyTrigger trigger = new ControlledNotifyTrigger(responseServerId);
+        ControlledNotifyTrigger trigger = new ControlledNotifyTrigger(responseServerId, request);
         pendingTriggers.add(trigger);
         return trigger.getFuture().thenApply(ignored -> response);
     }
@@ -77,14 +77,20 @@ final class ControlledNotifyGateway extends TestTabletServerGateway {
 
 final class ControlledNotifyTrigger {
     private final int responseServerId;
+    private final NotifyLeaderAndIsrRequest request;
     private final CompletableFuture<Void> future = new CompletableFuture<>();
 
-    ControlledNotifyTrigger(int responseServerId) {
+    ControlledNotifyTrigger(int responseServerId, NotifyLeaderAndIsrRequest request) {
         this.responseServerId = responseServerId;
+        this.request = request;
     }
 
     int getResponseServerId() {
         return responseServerId;
+    }
+
+    NotifyLeaderAndIsrRequest getRequest() {
+        return request;
     }
 
     CompletableFuture<Void> getFuture() {

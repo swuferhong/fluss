@@ -275,7 +275,7 @@ public class CoordinatorEventProcessor implements EventProcessor, RebalanceExecu
         this.coordinatorMetricGroup = coordinatorMetricGroup;
         this.internalListenerName = conf.getString(ConfigOptions.INTERNAL_LISTENER_NAME);
         this.rebalanceManager =
-                new RebalanceManager(this, zooKeeperClient, coordinatorEventManager, clock);
+                new RebalanceManager(this, zooKeeperClient, coordinatorEventManager, clock, conf);
         replicaRequestBatch.setRebalanceExecutionKeyResolver(rebalanceManager::getExecutionKey);
         bucketRequestBatch.setRebalanceExecutionKeyResolver(rebalanceManager::getExecutionKey);
         coordinatorRequestBatch.setRebalanceExecutionKeyResolver(rebalanceManager::getExecutionKey);
@@ -1822,9 +1822,10 @@ public class CoordinatorEventProcessor implements EventProcessor, RebalanceExecu
             return false;
         }
         LeaderAndIsr leaderAndIsr = leaderAndIsrOpt.get();
+        // Losing an original follower from ISR does not mean the migration has started. Only an
+        // ISR member outside the origin indicates leftover work that cancellation must drain.
         return leaderAndIsr.leader() == planForBucket.getOriginalLeader()
-                && new HashSet<>(leaderAndIsr.isr())
-                        .equals(new HashSet<>(planForBucket.getOriginReplicas()));
+                && new HashSet<>(planForBucket.getOriginReplicas()).containsAll(leaderAndIsr.isr());
     }
 
     private void reconcileRebalanceTask(

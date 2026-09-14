@@ -22,18 +22,26 @@ import org.apache.fluss.cluster.ServerType;
 import org.apache.fluss.cluster.rebalance.RebalancePlanForBucket;
 import org.apache.fluss.cluster.rebalance.RebalanceResultForBucket;
 import org.apache.fluss.cluster.rebalance.RebalanceStatus;
+import org.apache.fluss.cluster.rebalance.ServerTag;
+import org.apache.fluss.config.ConfigOption;
+import org.apache.fluss.config.Configuration;
 import org.apache.fluss.metadata.TableBucket;
+import org.apache.fluss.metadata.TableDescriptor;
+import org.apache.fluss.metadata.TableInfo;
+import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.server.coordinator.CoordinatorContext;
 import org.apache.fluss.server.coordinator.event.CoordinatorEvent;
 import org.apache.fluss.server.coordinator.event.EventManager;
 import org.apache.fluss.server.coordinator.event.RebalanceTaskTimeoutEvent;
 import org.apache.fluss.server.coordinator.event.ReconcileRebalanceTaskEvent;
 import org.apache.fluss.server.coordinator.event.RecoverRebalanceEvent;
+import org.apache.fluss.server.coordinator.rebalance.goal.ReplicaDistributionGoal;
 import org.apache.fluss.server.metadata.ServerInfo;
 import org.apache.fluss.server.zk.NOPErrorHandler;
 import org.apache.fluss.server.zk.ZkEpoch;
 import org.apache.fluss.server.zk.ZooKeeperClient;
 import org.apache.fluss.server.zk.ZooKeeperExtension;
+import org.apache.fluss.server.zk.data.LeaderAndIsr;
 import org.apache.fluss.server.zk.data.RebalanceTask;
 import org.apache.fluss.testutils.common.AllCallbackWrapper;
 import org.apache.fluss.utils.clock.ManualClock;
@@ -43,10 +51,15 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -54,6 +67,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.stream.Stream;
 
 import static org.apache.fluss.cluster.rebalance.RebalanceStatus.CANCELED;
 import static org.apache.fluss.cluster.rebalance.RebalanceStatus.COMPLETED;
@@ -61,7 +75,12 @@ import static org.apache.fluss.cluster.rebalance.RebalanceStatus.FAILED;
 import static org.apache.fluss.cluster.rebalance.RebalanceStatus.NOT_STARTED;
 import static org.apache.fluss.cluster.rebalance.RebalanceStatus.REBALANCING;
 import static org.apache.fluss.cluster.rebalance.RebalanceStatus.TIMEOUT;
+import static org.apache.fluss.config.ConfigOptions.COORDINATOR_REBALANCE_MAX_TRACKED_TIMED_OUT_TASKS;
+import static org.apache.fluss.config.ConfigOptions.COORDINATOR_REBALANCE_NO_PROGRESS_TIMEOUT;
+import static org.apache.fluss.config.ConfigOptions.COORDINATOR_REBALANCE_TARGET_UNAVAILABLE_TIMEOUT;
+import static org.apache.fluss.record.TestData.DATA1_TABLE_DESCRIPTOR;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Test for {@link RebalanceManager}. */
 public class RebalanceManagerTest {
@@ -97,6 +116,7 @@ public class RebalanceManagerTest {
                         zookeeperClient,
                         eventManager,
                         new ManualClock(),
+                        new Configuration(),
                         new NoOpScheduledExecutor());
         rebalanceManager.startup();
     }
@@ -144,6 +164,7 @@ public class RebalanceManagerTest {
                         zookeeperClient,
                         eventManager,
                         clock,
+                        new Configuration(),
                         executor);
         // If startup() finds a pending rebalance task in ZooKeeper, it should enqueue a
         // RecoverRebalanceEvent to be processed by the coordinator event thread, instead of
@@ -182,6 +203,7 @@ public class RebalanceManagerTest {
                         zookeeperClient,
                         eventManager,
                         clock,
+                        new Configuration(),
                         executor);
         manager.startup();
 
@@ -223,6 +245,7 @@ public class RebalanceManagerTest {
                         zookeeperClient,
                         eventManager,
                         clock,
+                        new Configuration(),
                         new NoOpScheduledExecutor());
         manager.startup();
 
@@ -396,14 +419,15 @@ public class RebalanceManagerTest {
         manager.close();
     }
 
-    @Test
-    void testTrackedTimedOutTasksAreCapped() {
+    @ParameterizedTest
+    @MethodSource("trackedTimedOutTaskLimits")
+    void testTrackedTimedOutTasksAreCapped(Configuration conf, int limit) {
         ManualClock clock = new ManualClock(0L);
         TestingRebalanceExecutor executor =
                 new TestingRebalanceExecutor(new CoordinatorContext(zkEpoch));
-        RebalanceManager manager = newManager(clock, new RecordingEventManager(), executor);
+        RebalanceManager manager = newManager(clock, new RecordingEventManager(), executor, conf);
 
-        TableBucket[] tableBuckets = new TableBucket[10];
+        TableBucket[] tableBuckets = new TableBucket[limit + 2];
         for (int i = 0; i < tableBuckets.length; i++) {
             tableBuckets[i] = new TableBucket(1L, i);
         }
@@ -411,28 +435,30 @@ public class RebalanceManagerTest {
 
         // every timed-out task keeps being tracked, so admitting new work has to stop at the cap.
         List<RebalanceExecutionKey> timedOut = new ArrayList<>();
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < limit; i++) {
             TableBucket running =
                     executor.executedPlans.get(executor.executedPlans.size() - 1).getTableBucket();
             RebalanceExecutionKey attempt = manager.getExecutionKey(running);
             assertThat(manager.timeoutRebalanceTask(attempt)).isTrue();
             timedOut.add(attempt);
         }
-        assertThat(executor.executedPlans).hasSize(8);
+        assertThat(executor.executedPlans).hasSize(limit);
 
         // once a tracked task reaches a final status the next pending task is admitted again.
         assertThat(manager.finishRebalanceTask(timedOut.get(0), COMPLETED)).isTrue();
-        assertThat(executor.executedPlans).hasSize(9);
+        assertThat(executor.executedPlans).hasSize(limit + 1);
 
         manager.close();
     }
 
-    @Test
-    void testTimedOutTaskFailsWhenTargetReplicasStayUnavailable() throws Exception {
+    @ParameterizedTest
+    @MethodSource("targetUnavailableTimeouts")
+    void testTimedOutTaskFailsWhenTargetReplicasStayUnavailable(
+            Configuration conf, Duration timeout) throws Exception {
         ManualClock clock = new ManualClock(0L);
         // no tablet server is live, so the target replicas can never catch up.
         RebalanceManager manager =
-                newManager(clock, new RecordingEventManager(), rebalanceExecutor);
+                newManager(clock, new RecordingEventManager(), rebalanceExecutor, conf);
 
         TableBucket tableBucket = new TableBucket(1L, 0);
         manager.registerRebalance("give-up-test", plans(tableBucket), NOT_STARTED);
@@ -440,7 +466,9 @@ public class RebalanceManagerTest {
         assertThat(manager.timeoutRebalanceTask(attempt)).isTrue();
         assertThat(manager.getPlanForReconciliation(attempt)).isNotNull();
 
-        clock.advanceTime(Duration.ofMinutes(31));
+        clock.advanceTime(timeout);
+        assertThat(manager.getPlanForReconciliation(attempt)).isNotNull();
+        clock.advanceTime(Duration.ofMillis(1));
         assertThat(manager.getPlanForReconciliation(attempt)).isNull();
 
         // the rebalance reaches a final status, so later rebalance requests are not blocked.
@@ -477,6 +505,249 @@ public class RebalanceManagerTest {
         manager.close();
     }
 
+    @ParameterizedTest
+    @MethodSource("noProgressTimeouts")
+    void testTimedOutTaskFailsWithoutProgressWhileTargetsAreLive(
+            Configuration conf, Duration timeout) throws Exception {
+        ManualClock clock = new ManualClock(0L);
+        CoordinatorContext context = new CoordinatorContext(zkEpoch);
+        for (int serverId : new int[] {1, 2, 3}) {
+            context.addLiveTabletServer(tabletServer(serverId));
+        }
+        TestingRebalanceExecutor executor = new TestingRebalanceExecutor(context);
+        RebalanceManager manager = newManager(clock, new RecordingEventManager(), executor, conf);
+        TableBucket tableBucket = new TableBucket(1L, 0);
+        manager.registerRebalance("no-progress-test", plans(tableBucket), NOT_STARTED);
+        RebalanceExecutionKey attempt = manager.getExecutionKey(tableBucket);
+        assertThat(manager.timeoutRebalanceTask(attempt)).isTrue();
+
+        clock.advanceTime(timeout.minusMillis(1));
+        assertThat(manager.getPlanForReconciliation(attempt)).isNotNull();
+        assertThat(manager.getRebalanceStatus()).isEqualTo(REBALANCING);
+        assertThat(manager.hasInProgressRebalance()).isTrue();
+        clock.advanceTime(Duration.ofMillis(1));
+        assertThat(manager.getPlanForReconciliation(attempt)).isNotNull();
+        clock.advanceTime(Duration.ofMillis(1));
+        assertThat(manager.getPlanForReconciliation(attempt)).isNull();
+        assertThat(manager.getRebalanceStatus()).isEqualTo(FAILED);
+        assertThat(manager.hasInProgressRebalance()).isFalse();
+        assertThat(zookeeperClient.getRebalanceTask().get().getRebalanceStatus()).isEqualTo(FAILED);
+
+        TableBucket nextBucket = new TableBucket(1L, 1);
+        Map<TableBucket, RebalancePlanForBucket> nextPlan = plans(nextBucket);
+        manager.registerRebalance("after-no-progress-timeout", nextPlan, NOT_STARTED);
+        assertThat(manager.getRebalanceId()).isEqualTo("after-no-progress-timeout");
+        assertThat(manager.getRebalanceStatus()).isEqualTo(REBALANCING);
+        assertThat(manager.hasInProgressRebalance()).isTrue();
+        assertThat(executor.executedPlans).hasSize(2).last().isEqualTo(nextPlan.get(nextBucket));
+        manager.close();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testGenerateRebalanceAfterFailureAndRecovery(boolean targetUnavailable) throws Exception {
+        ManualClock clock = new ManualClock(0L);
+        CoordinatorContext context = rebalanceExecutor.getCoordinatorContext();
+        for (int serverId : new int[] {0, 1, 2, 3, 4}) {
+            if (!targetUnavailable || serverId != 3) {
+                context.addLiveTabletServer(tabletServer(serverId));
+            }
+        }
+        context.putServerTag(0, ServerTag.PERMANENT_OFFLINE);
+        TableBucket bucket = new TableBucket(1L, 0);
+        putBucketForPlanning(context, bucket, Arrays.asList(0, 1, 2, 3));
+        RebalanceManager manager =
+                newManager(clock, new RecordingEventManager(), rebalanceExecutor);
+        try {
+            manager.registerRebalance("failed-migration", plans(bucket), NOT_STARTED);
+            RebalanceExecutionKey attempt = manager.getExecutionKey(bucket);
+            manager.timeoutRebalanceTask(attempt);
+            assertThat(manager.getPlanForReconciliation(attempt)).isNotNull();
+            clock.advanceTime(targetUnavailable ? Duration.ofMinutes(31) : Duration.ofHours(25));
+            assertThat(manager.getPlanForReconciliation(attempt)).isNull();
+            assertThat(manager.hasInProgressRebalance()).isFalse();
+
+            RebalanceTask persistedTask = zookeeperClient.getRebalanceTask().get();
+            assertThat(persistedTask.getRebalanceStatus()).isEqualTo(FAILED);
+            manager.close();
+            manager = newManager(clock, new RecordingEventManager(), rebalanceExecutor);
+            manager.recoverRebalance(persistedTask);
+            RebalanceTask next =
+                    manager.generateRebalanceTask(
+                            Collections.singletonList(new ReplicaDistributionGoal()));
+            RebalancePlanForBucket nextPlan = next.getExecutePlan().get(bucket);
+            assertThat(nextPlan).isNotNull();
+            assertThat(nextPlan.getOriginReplicas()).containsExactly(0, 1, 2, 3);
+            assertThat(nextPlan.getNewReplicas()).hasSize(3).contains(1, 2).doesNotContain(0);
+            assertThat(context.liveTabletServerSet()).containsAll(nextPlan.getNewReplicas());
+            // Planning must leave the real assignment intact until the replacement task executes.
+            assertThat(context.getAssignment(bucket)).containsExactly(0, 1, 2, 3);
+            manager.registerRebalance(next.getRebalanceId(), next.getExecutePlan(), NOT_STARTED);
+            assertThat(rebalanceExecutor.executedPlans).hasSize(2).last().isEqualTo(nextPlan);
+        } finally {
+            manager.close();
+        }
+    }
+
+    @Test
+    void testGenerateRebalanceReplacesUnavailableReplica() {
+        CoordinatorContext context = rebalanceExecutor.getCoordinatorContext();
+        for (int serverId : new int[] {0, 1, 4}) {
+            context.addLiveTabletServer(tabletServer(serverId));
+        }
+        TableBucket bucket = new TableBucket(1L, 0);
+        putBucketForPlanning(context, bucket, Arrays.asList(0, 1, 2));
+
+        RebalanceTask task =
+                rebalanceManager.generateRebalanceTask(
+                        Collections.singletonList(new ReplicaDistributionGoal()));
+        assertThat(task.getExecutePlan().get(bucket).getNewReplicas())
+                .containsExactlyInAnyOrder(0, 1, 4);
+    }
+
+    @Test
+    void testGenerateCleanupPlanWithoutOptimizationChanges() {
+        CoordinatorContext context = rebalanceExecutor.getCoordinatorContext();
+        for (int serverId : new int[] {0, 1, 2, 3}) {
+            context.addLiveTabletServer(tabletServer(serverId));
+        }
+        // The replica count comes from table metadata, even when the previous plan is gone.
+        TableBucket bucket = new TableBucket(1L, 10L, 0);
+        putBucketForPlanning(context, bucket, Arrays.asList(0, 1, 2, 3));
+
+        RebalanceTask task =
+                rebalanceManager.generateRebalanceTask(
+                        Collections.singletonList(new ReplicaDistributionGoal()));
+        assertThat(task.getExecutePlan()).containsKey(bucket);
+        assertThat(task.getExecutePlan().get(bucket).getOriginReplicas())
+                .containsExactly(0, 1, 2, 3);
+        assertThat(task.getExecutePlan().get(bucket).getNewReplicas()).containsExactly(0, 1, 2);
+    }
+
+    private static void putBucketForPlanning(
+            CoordinatorContext context, TableBucket bucket, List<Integer> assignment) {
+        TableDescriptor descriptor = DATA1_TABLE_DESCRIPTOR.withReplicationFactor(3);
+        context.putTableInfo(
+                TableInfo.of(
+                        TablePath.of("db", "table"),
+                        bucket.getTableId(),
+                        1,
+                        descriptor,
+                        "file:///tmp/rebalance-planning",
+                        0L,
+                        0L));
+        context.updateBucketReplicaAssignment(bucket, assignment);
+        context.putBucketLeaderAndIsr(
+                bucket,
+                new LeaderAndIsr(
+                        0,
+                        1,
+                        Arrays.asList(0, 1, 2),
+                        Collections.emptyList(),
+                        context.getCoordinatorEpoch(),
+                        1));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidTimeouts")
+    void testRejectsInvalidTimeout(ConfigOption<Duration> option, Duration timeout) {
+        Configuration conf = new Configuration().set(option, timeout);
+        assertThatThrownBy(
+                        () -> newManager(new ManualClock(), eventManager, rebalanceExecutor, conf))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(option.key())
+                .hasMessageContaining("must be between 1 ms");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1})
+    void testRejectsInvalidTrackedTimedOutTaskLimit(int limit) {
+        Configuration conf =
+                new Configuration().set(COORDINATOR_REBALANCE_MAX_TRACKED_TIMED_OUT_TASKS, limit);
+        assertThatThrownBy(
+                        () -> newManager(new ManualClock(), eventManager, rebalanceExecutor, conf))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(COORDINATOR_REBALANCE_MAX_TRACKED_TIMED_OUT_TASKS.key())
+                .hasMessageContaining("must be at least 1");
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1, Long.MAX_VALUE})
+    void testAcceptsTimeoutConfigurationBounds(long timeoutMs) {
+        Configuration conf =
+                new Configuration()
+                        .set(
+                                COORDINATOR_REBALANCE_TARGET_UNAVAILABLE_TIMEOUT,
+                                Duration.ofMillis(timeoutMs))
+                        .set(
+                                COORDINATOR_REBALANCE_NO_PROGRESS_TIMEOUT,
+                                Duration.ofMillis(timeoutMs));
+        RebalanceManager manager =
+                newManager(new ManualClock(), eventManager, rebalanceExecutor, conf);
+        manager.close();
+    }
+
+    private static Stream<Arguments> targetUnavailableTimeouts() {
+        return Stream.of(
+                Arguments.of(new Configuration(), Duration.ofMinutes(30)),
+                Arguments.of(
+                        new Configuration()
+                                .set(
+                                        COORDINATOR_REBALANCE_TARGET_UNAVAILABLE_TIMEOUT,
+                                        Duration.ofMinutes(5)),
+                        Duration.ofMinutes(5)),
+                Arguments.of(
+                        new Configuration()
+                                .set(
+                                        COORDINATOR_REBALANCE_TARGET_UNAVAILABLE_TIMEOUT,
+                                        Duration.ofHours(1)),
+                        Duration.ofHours(1)));
+    }
+
+    private static Stream<Arguments> noProgressTimeouts() {
+        return Stream.of(
+                Arguments.of(new Configuration(), Duration.ofHours(24)),
+                Arguments.of(
+                        new Configuration()
+                                .set(
+                                        COORDINATOR_REBALANCE_NO_PROGRESS_TIMEOUT,
+                                        Duration.ofMinutes(5)),
+                        Duration.ofMinutes(5)),
+                Arguments.of(
+                        new Configuration()
+                                .set(
+                                        COORDINATOR_REBALANCE_NO_PROGRESS_TIMEOUT,
+                                        Duration.ofHours(48)),
+                        Duration.ofHours(48)));
+    }
+
+    private static Stream<Arguments> trackedTimedOutTaskLimits() {
+        return Stream.of(
+                Arguments.of(new Configuration(), 8),
+                Arguments.of(
+                        new Configuration()
+                                .set(COORDINATOR_REBALANCE_MAX_TRACKED_TIMED_OUT_TASKS, 1),
+                        1),
+                Arguments.of(
+                        new Configuration()
+                                .set(COORDINATOR_REBALANCE_MAX_TRACKED_TIMED_OUT_TASKS, 3),
+                        3));
+    }
+
+    private static Stream<Arguments> invalidTimeouts() {
+        return Stream.of(
+                        COORDINATOR_REBALANCE_TARGET_UNAVAILABLE_TIMEOUT,
+                        COORDINATOR_REBALANCE_NO_PROGRESS_TIMEOUT)
+                .flatMap(
+                        option ->
+                                Stream.of(
+                                                Duration.ZERO,
+                                                Duration.ofMillis(-1),
+                                                Duration.ofNanos(999_999),
+                                                Duration.ofMillis(Long.MAX_VALUE).plusMillis(1))
+                                        .map(timeout -> Arguments.of(option, timeout)));
+    }
+
     @Test
     void testCancelGivesUpImmediatelyOnAdmittedTaskStillAtOrigin() throws Exception {
         TableBucket tb1 = new TableBucket(1L, 0);
@@ -496,12 +767,21 @@ public class RebalanceManagerTest {
             ManualClock clock,
             RecordingEventManager eventManager,
             TestingRebalanceExecutor executor) {
+        return newManager(clock, eventManager, executor, new Configuration());
+    }
+
+    private RebalanceManager newManager(
+            ManualClock clock,
+            RecordingEventManager eventManager,
+            TestingRebalanceExecutor executor,
+            Configuration conf) {
         RebalanceManager manager =
                 new RebalanceManager(
                         executor,
                         zookeeperClient,
                         eventManager,
                         clock,
+                        conf,
                         new NoOpScheduledExecutor());
         manager.startup();
         return manager;
@@ -544,6 +824,7 @@ public class RebalanceManagerTest {
                         zookeeperClient,
                         recordingEventManager,
                         new ManualClock(),
+                        new Configuration(),
                         new NoOpScheduledExecutor());
 
         recoveringManager.startup();
