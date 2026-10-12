@@ -822,8 +822,11 @@ public final class LogTablet {
      * restoring KV values alone does not rebuild this state. Clearing, installing and loading the
      * snapshot share the log lock so other writer state operations cannot observe a partial
      * restore.
+     *
+     * @return whether the downloaded snapshot was loaded successfully; false if it was discarded as
+     *     corrupt, even though the empty log remains usable with degraded writer state
      */
-    public void restoreWriterSnapshot(Path snapshot, long snapshotOffset) throws IOException {
+    public boolean restoreWriterSnapshot(Path snapshot, long snapshotOffset) throws IOException {
         synchronized (lock) {
             checkArgument(
                     localLogStartOffset() == snapshotOffset
@@ -839,7 +842,16 @@ public final class LogTablet {
                     FlussPaths.writerSnapshotFile(getLogDir(), snapshotOffset).toPath(),
                     false);
             writerStateManager.reloadSnapshots();
-            loadWriterSnapshot(snapshotOffset);
+            writerStateManager.truncateAndReload(0L, snapshotOffset, System.currentTimeMillis());
+            // There is no local WAL to rebuild from. Check the downloaded snapshot before
+            // taking a replacement: a corrupt snapshot is deleted during loading, but taking
+            // an empty snapshot at the same offset would hide that failure. A valid snapshot
+            // with no active writers (for example, after expiration) still counts as loaded.
+            boolean restored = writerStateManager.fetchSnapshot(snapshotOffset).isPresent();
+            writerStateManager.updateMapEndOffset(snapshotOffset);
+            writerStateManager.takeSnapshot();
+            updateHighWatermark(snapshotOffset);
+            return restored;
         }
     }
 

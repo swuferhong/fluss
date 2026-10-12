@@ -185,7 +185,9 @@ class RemoteLogFetcherTest extends RemoteLogTestBase {
                 remoteLogManager.relevantRemoteLogSegments(bucket, 0).get(truncatedSegment);
         FsPath logFile =
                 FlussPaths.remoteLogSegmentFile(
-                        FlussPaths.remoteLogSegmentDir(remoteLogStorage.getRemoteLogDir(), segment),
+                        FlussPaths.remoteLogSegmentDir(
+                                remoteLogManager.remoteLogTablet(bucket).getRemoteLogDir(),
+                                segment),
                         segment.remoteLogStartOffset());
         logFile.getFileSystem().create(logFile, FileSystem.WriteMode.OVERWRITE).close();
 
