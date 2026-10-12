@@ -972,6 +972,15 @@ public final class Replica {
                 // where to read. For snapshot 100 and remote end 150, an empty log left at 0
                 // would route offset 100 to missing local WAL instead of remote WAL [100, 150).
                 // Historical partitions use their separate lake-based recovery boundary.
+                //
+                // TODO: Implement local-first leader election, tracked in
+                // https://github.com/apache/fluss/issues/4600: use eligible ISR replicas' local
+                // [start, end) bounds and replay continuity to choose the highest recoverable
+                // local end. Use this snapshot/remote WAL fallback only when no eligible local
+                // replica can recover; an unreachable replica does not prove its data is lost.
+                // Currently an empty ISR replica can become leader while another ISR replica
+                // retains a longer recoverable WAL. Recovering the empty leader to the remote
+                // boundary can cause the intact follower to truncate data still available locally.
                 remoteLogManager.recoverEmptyKvLog(this, restoreStartOffset);
             }
             logTablet.updateMinRetainOffset(restoreStartOffset);
