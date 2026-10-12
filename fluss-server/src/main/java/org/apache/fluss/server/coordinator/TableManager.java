@@ -210,12 +210,12 @@ public class TableManager {
      *
      * <p>It does the following:
      *
-     * <p>1. Move replicas on live tablet servers to offline state. This sends stop replica requests
-     * so they stop fetching from their leaders.
+     * <p>1. Move all replicas to offline state. For live or shutting-down tablet servers, this
+     * sends stop replica requests so they stop fetching from their leaders.
      *
-     * <p>2. Move those replicas to deletion started state and send stop replica requests with
-     * delete=true. Replicas on dead tablet servers are moved to deletion ineligible state and
-     * retried when their tablet servers come back.
+     * <p>2. Move replicas on live or shutting-down tablet servers to deletion started state and
+     * send stop replica requests with delete=true. Replicas on dead tablet servers are moved to
+     * deletion ineligible state and retried when their tablet servers come back.
      */
     private void onDeleteTableBucket(
             Set<TableBucket> tableBuckets, Set<TableBucketReplica> allReplicas) {
@@ -227,7 +227,7 @@ public class TableManager {
                                 Collectors.partitioningBy(
                                         replica ->
                                                 coordinatorContext
-                                                        .liveTabletServerSet()
+                                                        .liveOrShuttingDownTabletServers()
                                                         .contains(replica.getReplica()),
                                         Collectors.toSet()));
 
@@ -236,7 +236,10 @@ public class TableManager {
         // Replica state alone does not indicate whether a delete request can be sent: an
         // OfflineReplica may still be hosted by a live tablet server. Only replicas on dead tablet
         // servers have no active channel and must wait for the server to come back.
-        replicaStateMachine.handleStateChanges(replicasOnLiveServers, ReplicaState.OfflineReplica);
+        // A dead server may still have OnlineReplica entries, for example when it goes down
+        // while a recovered deletion waits in the lifecycle throttler. Move all replicas through
+        // OfflineReplica before starting deletion or marking it ineligible.
+        replicaStateMachine.handleStateChanges(allReplicas, ReplicaState.OfflineReplica);
         replicaStateMachine.handleStateChanges(
                 replicasOnDeadServers, ReplicaState.ReplicaDeletionIneligible);
         replicaStateMachine.handleStateChanges(
