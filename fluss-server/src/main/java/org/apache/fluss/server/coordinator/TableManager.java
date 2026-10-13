@@ -257,8 +257,11 @@ public class TableManager {
                                 replica -> {
                                     ReplicaState state =
                                             coordinatorContext.getReplicaState(replica);
-                                    return state == ReplicaState.OfflineReplica
-                                            || state == ReplicaState.ReplicaDeletionStarted;
+                                    // A recovered OfflineReplica may still be waiting for
+                                    // deletion admission. Only fail a deletion already started;
+                                    // otherwise server startup could bypass the lifecycle
+                                    // throttler.
+                                    return state == ReplicaState.ReplicaDeletionStarted;
                                 })
                         .collect(Collectors.toSet());
         if (!replicas.isEmpty()) {
