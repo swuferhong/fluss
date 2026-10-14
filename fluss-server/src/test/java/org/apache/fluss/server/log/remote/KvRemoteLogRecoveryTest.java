@@ -47,6 +47,7 @@ import java.io.File;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -63,6 +64,7 @@ import static org.apache.fluss.server.kv.KvTabletTestUtils.flushAndWait;
 import static org.apache.fluss.testutils.DataTestUtils.genKvRecordBatchWithWriterId;
 import static org.apache.fluss.testutils.DataTestUtils.genKvRecords;
 import static org.apache.fluss.testutils.DataTestUtils.getKeyValuePairs;
+import static org.apache.fluss.testutils.common.CommonTestUtils.waitUntil;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -71,27 +73,15 @@ class KvRemoteLogRecoveryTest extends RemoteLogTestBase {
 
     private static final long WRITER_ID = 123;
 
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void testRecoverKvWithOrWithoutClippedWriterSnapshot(boolean clipped) throws Exception {
-        Replica replica = prepareEmptyReplica(false);
+    @Test
+    void testRecoverKvWithWriterSnapshot() throws Exception {
+        Replica replica = prepareEmptyReplica();
         LogTablet log = replica.getLogTablet();
-        RemoteLogSegment segment = remoteSegment(replica);
-        int recoveredEnd = clipped ? 5 : DATA1.size();
-        if (clipped) {
-            loadManifest(replica, segment.withLogicalRange(0, recoveredEnd), 10);
-            // Recovery must not even fetch the unusable snapshot at physical end 10.
-            FsPath writerSnapshot = remoteWriterSnapshot(segment);
-            assertThat(writerSnapshot.getFileSystem().delete(writerSnapshot, false)).isTrue();
-        }
+        int recoveredEnd = DATA1.size();
 
         try (TestingRecoveryAppender appender = new TestingRecoveryAppender()) {
             recoverReplica(replica, 1);
-            if (clipped) {
-                assertDegradedRecovery(appender, replica, 0, 5, 5, "end_clipped_remote_segment");
-            } else {
-                assertThat(appender.messages).isEmpty();
-            }
+            assertThat(appender.messages).isEmpty();
         }
         assertThat(log.localLogStartOffset()).isEqualTo(recoveredEnd);
         assertThat(log.localLogEndOffset()).isEqualTo(recoveredEnd);
@@ -106,17 +96,8 @@ class KvRemoteLogRecoveryTest extends RemoteLogTestBase {
                         Collections.singletonList(DATA1.get(recoveredEnd - 1)),
                         WRITER_ID,
                         recoveredEnd - 1);
-        if (clipped) {
-            assertThat(log.writerStateManager().activeWriters()).isEmpty();
-            // KV recovery does not reconstruct writer sequence state. Keep normal sequence
-            // validation rather than silently accepting an existing writer's non-zero sequence.
-            assertThatThrownBy(
-                            () -> replica.putRecordsToLeader(lastBatch, null, MergeMode.DEFAULT, 0))
-                    .isInstanceOf(OutOfOrderSequenceException.class);
-        } else {
-            assertThat(log.writerStateManager().lastEntry(WRITER_ID)).isPresent();
-            replica.putRecordsToLeader(lastBatch, null, MergeMode.DEFAULT, 0);
-        }
+        assertThat(log.writerStateManager().lastEntry(WRITER_ID)).isPresent();
+        replica.putRecordsToLeader(lastBatch, null, MergeMode.DEFAULT, 0);
         assertThat(log.localLogEndOffset()).isEqualTo(recoveredEnd);
 
         replica.putRecordsToLeader(
@@ -133,7 +114,7 @@ class KvRemoteLogRecoveryTest extends RemoteLogTestBase {
     @ValueSource(booleans = {true, false})
     void testCorruptWriterSnapshotReportsDegradationButValidEmptySnapshotDoesNot(boolean corrupt)
             throws Exception {
-        Replica replica = prepareEmptyReplica(false);
+        Replica replica = prepareEmptyReplica();
         LogTablet log = replica.getLogTablet();
         File writerSnapshot = new File(remoteWriterSnapshot(remoteSegment(replica)).getPath());
         if (corrupt) {
@@ -189,7 +170,7 @@ class KvRemoteLogRecoveryTest extends RemoteLogTestBase {
             long snapshotOffset, long remoteEndOffset) throws Exception {
         Replica replica;
         if (remoteEndOffset > 0) {
-            replica = prepareEmptyReplica(false);
+            replica = prepareEmptyReplica();
             FsPath writerSnapshot = remoteWriterSnapshot(remoteSegment(replica));
             // The old remote writer snapshot must not be used at the newer recovery boundary.
             assertThat(writerSnapshot.getFileSystem().delete(writerSnapshot, false)).isTrue();
@@ -223,36 +204,44 @@ class KvRemoteLogRecoveryTest extends RemoteLogTestBase {
         }
     }
 
-    @Test
-    void testClippedSegmentCannotHideExpiredRemoteTail() throws Exception {
-        Replica replica = prepareEmptyReplica(false);
-        // The retained physical file only reaches 10. Copied progress through 20 cannot be
-        // explained by clipping that file to 5 and must still be treated as missing WAL.
-        loadManifest(replica, remoteSegment(replica).withLogicalRange(0, 5), 20);
+    @ParameterizedTest
+    @ValueSource(longs = {10, 20})
+    void testEndClippedRemoteTailCannotRecover(long copiedEndOffset) throws Exception {
+        Replica replica = prepareEmptyReplica();
+        // Even with a complete physical file, recovery to logical end 5 is unsafe: a follower
+        // still jumps to physical end 10 and could skip new leader writes in [5, 10). Reject
+        // before advancing the local boundary, whether the copied watermark is 10 or beyond it.
+        loadManifest(replica, remoteSegment(replica).withLogicalRange(0, 5), copiedEndOffset);
 
-        assertThatThrownBy(() -> recoverReplica(replica, 1))
-                .isInstanceOf(KvStorageException.class)
-                .hasStackTraceContaining("copied offset 20 is beyond snapshot offset 0");
+        try (TestingRecoveryAppender appender = new TestingRecoveryAppender()) {
+            assertThatThrownBy(() -> recoverReplica(replica, 1))
+                    .isInstanceOf(KvStorageException.class)
+                    .hasStackTraceContaining(
+                            "copied offset " + copiedEndOffset + " is beyond snapshot offset 0");
+            assertThat(appender.messages).isEmpty();
+        }
+        assertThat(replica.getLocalLogStartOffset()).isZero();
         assertThat(replica.getLocalLogEndOffset()).isZero();
+        assertThat(replica.getLogHighWatermark()).isZero();
+        assertThat(replica.getLogTablet().writerStateManager().activeWriters()).isEmpty();
         assertThat(replica.getKvTablet()).isNull();
     }
 
     @Test
-    void testClippedSegmentWithMissingRecoveryRangeFails() throws Exception {
-        Replica replica = prepareEmptyReplica(false);
-        loadManifest(replica, remoteSegment(replica).withLogicalRange(2, 5), 10);
+    void testRemoteLogWithMissingRecoveryRangeFails() throws Exception {
+        Replica replica = prepareEmptyReplica();
+        loadManifest(replica, remoteSegment(replica).withLogicalRange(2, 10), 10);
 
         assertThatThrownBy(() -> recoverReplica(replica, 1))
                 .isInstanceOf(KvStorageException.class)
-                .hasStackTraceContaining("remote log is missing offsets [0, 5)");
+                .hasStackTraceContaining("remote log is missing offsets [0, 10)");
         assertThat(replica.getKvTablet()).isNull();
     }
 
     @Test
-    void testClippedSegmentWithTruncatedRequiredWalFails() throws Exception {
-        Replica replica = prepareEmptyReplica(false);
+    void testTruncatedRequiredWalFails() throws Exception {
+        Replica replica = prepareEmptyReplica();
         RemoteLogSegment segment = remoteSegment(replica);
-        loadManifest(replica, segment.withLogicalRange(0, 5), 10);
         FsPath logFile =
                 FlussPaths.remoteLogSegmentFile(
                         FlussPaths.remoteLogSegmentDir(
@@ -261,45 +250,36 @@ class KvRemoteLogRecoveryTest extends RemoteLogTestBase {
                                         .getRemoteLogDir(),
                                 segment),
                         segment.remoteLogStartOffset());
-        int position = remoteLogManager.lookupPositionForOffset(segment, 4);
+        int position = remoteLogManager.lookupPositionForOffset(segment, 9);
         try (RandomAccessFile file = new RandomAccessFile(new File(logFile.getPath()), "rw")) {
             file.setLength(position);
         }
 
         assertThatThrownBy(() -> recoverReplica(replica, 1))
                 .isInstanceOf(KvStorageException.class)
-                .hasStackTraceContaining("ended at offset 4 before required offset 5");
+                .hasStackTraceContaining("ended at offset 9 before required offset 10");
         assertThat(replica.getKvTablet()).isNull();
     }
 
-    @Test
-    void testClippingInsideRecordBatchFails() throws Exception {
-        Replica replica = prepareEmptyReplica(true);
-        loadManifest(replica, remoteSegment(replica).withLogicalRange(0, 5), 10);
-
-        assertThatThrownBy(() -> recoverReplica(replica, 1))
-                .isInstanceOf(KvStorageException.class)
-                .hasStackTraceContaining("Logical boundary 5 cuts record batch [0, 10)");
-        assertThat(replica.getKvTablet()).isNull();
-    }
-
-    private Replica prepareEmptyReplica(boolean singleBatch) throws Exception {
+    private Replica prepareEmptyReplica() throws Exception {
         TableBucket bucket = new TableBucket(DATA1_TABLE_ID_PK, 0);
         makeKvTableAsLeader(DATA1_TABLE_ID_PK, DATA1_TABLE_PATH_PK, 0);
         Replica replica = replicaManager.getReplicaOrException(bucket);
-        if (singleBatch) {
-            replica.putRecordsToLeader(batch(DATA1, WRITER_ID, 0), null, MergeMode.DEFAULT, 0);
-        } else {
-            for (int i = 0; i < DATA1.size(); i++) {
-                replica.putRecordsToLeader(
-                        batch(Collections.singletonList(DATA1.get(i)), WRITER_ID, i),
-                        null,
-                        MergeMode.DEFAULT,
-                        0);
-            }
+        for (int i = 0; i < DATA1.size(); i++) {
+            replica.putRecordsToLeader(
+                    batch(Collections.singletonList(DATA1.get(i)), WRITER_ID, i),
+                    null,
+                    MergeMode.DEFAULT,
+                    0);
         }
         flushAndWait(replica.getKvTablet(), DATA1.size());
         LogTablet log = replica.getLogTablet();
+        // Flush progress is visible before its callback advances the high watermark. Tiering
+        // only uploads committed segments, so wait for that callback before triggering it.
+        waitUntil(
+                () -> log.getHighWatermark() == DATA1.size(),
+                Duration.ofSeconds(30),
+                "High watermark did not reach the flushed KV offset.");
         log.roll(Optional.empty());
         remoteLogTaskScheduler.triggerPeriodicScheduledTasks();
         assertThat(remoteSegment(replica).remoteLogEndOffset()).isEqualTo(DATA1.size());

@@ -188,11 +188,12 @@ public class RemoteLogManager implements Closeable {
      * WAL replay is needed: the snapshot already contains the KV state at that boundary. It does
      * not recreate the missing historical WAL [100, 150).
      *
-     * <p>If the last remote segment has a clipped end, its writer snapshot includes discarded
-     * writes and is skipped. A corrupt writer snapshot or a KV snapshot ahead of remote WAL also
-     * leaves writer state degraded. These cases are logged with the recovery offsets and reason. KV
-     * replay must still validate the required WAL, but historical duplicate detection is
-     * unavailable and existing writers may fail sequence validation.
+     * <p>Recovery to the logical end of an end-clipped remote tail is rejected: follower recovery
+     * still advances to the physical end and could skip new writes made by the recovered leader. A
+     * corrupt writer snapshot or a KV snapshot ahead of remote WAL leaves writer state degraded.
+     * These cases are logged with the recovery offsets and reason. KV replay must still validate
+     * the required WAL, but historical duplicate detection is unavailable and existing writers may
+     * fail sequence validation.
      *
      * <p>Only the durable prefix is recoverable after losing all local replicas. Acknowledged
      * writes beyond this boundary may be lost. The caller must finish KV replay before exposing the
@@ -220,28 +221,13 @@ public class RemoteLogManager implements Closeable {
             return;
         }
 
-        RemoteLogSegment lastSegment = null;
-        if (remoteEndOffset > 0) {
-            List<RemoteLogSegment> lastSegments =
-                    remoteLog.relevantRemoteLogSegments(remoteEndOffset - 1);
-            lastSegment = lastSegments.get(lastSegments.size() - 1);
-        }
-
         // A manifest's copied watermark is not proof that its expired records are still readable.
         // For example, if WAL was copied through 150 but all remote segments have expired,
         // a snapshot at 120 cannot recover [120, 150). A snapshot at 150 would cover that state.
-        // An explicitly clipped tail is different: physical [100, 150) exposed as [100, 120)
-        // retains a copied watermark of 150, but [120, 150) was deliberately excluded. Allow
-        // recovery to 120 only if this explains the entire copied tail. A watermark of 200
-        // would still mean that later WAL is missing and cannot be excused by clipping to 120.
-        boolean copiedTailIsClipped =
-                lastSegment != null
-                        && lastSegment.isEndOffsetClipped()
-                        && remoteLog.getHighestCopiedEndOffset()
-                                == lastSegment.remoteLogEndOffset();
-        if (remoteLog != null
-                && remoteLog.getHighestCopiedEndOffset() > recoveredEndOffset
-                && !copiedTailIsClipped) {
+        // Do not exempt an end-clipped tail. A physical [100, 150) exposed as [100, 120)
+        // still makes a follower advance to 150 and load its old writer snapshot. If the leader
+        // resumed writing at 120, that follower could skip the new records in [120, 150).
+        if (remoteLog != null && remoteLog.getHighestCopiedEndOffset() > recoveredEndOffset) {
             throw new IOException(
                     String.format(
                             "Cannot recover empty KV log for %s: copied offset %s is beyond "
@@ -279,24 +265,26 @@ public class RemoteLogManager implements Closeable {
         Path writerSnapshot = null;
         String writerStateDegradationReason = null;
         try {
-            if (lastSegment != null && remoteEndOffset == recoveredEndOffset) {
+            if (remoteEndOffset > 0 && remoteEndOffset == recoveredEndOffset) {
+                List<RemoteLogSegment> lastSegments =
+                        remoteLog.relevantRemoteLogSegments(remoteEndOffset - 1);
+                RemoteLogSegment lastSegment = lastSegments.get(lastSegments.size() - 1);
                 if (lastSegment.isEndOffsetClipped()) {
                     // A physical segment [100, 150) exposed only as [100, 120) still carries a
                     // writer snapshot for 150. Loading it at 120 would include discarded writes.
-                    // Skip only the writer snapshot; the caller must still replay and validate
-                    // the WAL through 120. Missing or truncated required WAL must fail recovery.
-                    writerStateDegradationReason = "end_clipped_remote_segment";
-                } else {
-                    writerSnapshot =
-                            Files.createTempFile(
-                                    log.getLogDir().toPath(), "writer-recovery-", ".tmp");
-                    try (InputStream input =
-                            remoteLogStorage.fetchIndex(
-                                    remoteLog.getRemoteLogDir(),
-                                    lastSegment,
-                                    RemoteLogStorage.IndexType.WRITER_ID_SNAPSHOT)) {
-                        Files.copy(input, writerSnapshot, StandardCopyOption.REPLACE_EXISTING);
-                    }
+                    // Skipping it is also unsafe until follower recovery honors logical ends.
+                    throw new IOException(
+                            "Cannot recover empty KV log from an end-clipped remote segment for "
+                                    + bucket);
+                }
+                writerSnapshot =
+                        Files.createTempFile(log.getLogDir().toPath(), "writer-recovery-", ".tmp");
+                try (InputStream input =
+                        remoteLogStorage.fetchIndex(
+                                remoteLog.getRemoteLogDir(),
+                                lastSegment,
+                                RemoteLogStorage.IndexType.WRITER_ID_SNAPSHOT)) {
+                    Files.copy(input, writerSnapshot, StandardCopyOption.REPLACE_EXISTING);
                 }
             } else if (snapshotOffset > remoteEndOffset && recoveredEndOffset > 0) {
                 // KV snapshot 150 with remote WAL ending at 100 restores KV through 150, but
