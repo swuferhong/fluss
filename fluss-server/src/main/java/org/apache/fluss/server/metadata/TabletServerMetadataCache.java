@@ -230,20 +230,27 @@ public class TabletServerMetadataCache implements ServerMetadataCache {
                         TablePath tablePath = tableInfo.getTablePath();
                         long tableId = tableInfo.getTableId();
 
-                        if (tableId == DELETED_TABLE_ID) {
+                        Long deletedTableId = tableMetadata.getDeletedTableId();
+                        if (deletedTableId != null || DELETED_TABLE_PATH.equals(tablePath)) {
+                            long removedTableId = deletedTableId != null ? deletedTableId : tableId;
+                            // Updates for a recreated table may precede this tombstone, even in
+                            // the same batch. Remove only mappings that still refer to the old ID.
+                            if (DELETED_TABLE_PATH.equals(tablePath)) {
+                                tableIdByPath.values().removeIf(id -> id == removedTableId);
+                            } else {
+                                tableIdByPath.remove(tablePath, removedTableId);
+                            }
+                            bucketMetadataMapForTables.remove(removedTableId);
+                            deletedTableIds.add(removedTableId);
+                            bucketCountEpochByTableId.remove(removedTableId);
+                        } else if (tableId == DELETED_TABLE_ID) {
+                            // Compatibility with coordinators that only send the table name.
                             Long removedTableId = tableIdByPath.remove(tablePath);
                             if (removedTableId != null) {
                                 bucketMetadataMapForTables.remove(removedTableId);
                                 deletedTableIds.add(removedTableId);
                                 bucketCountEpochByTableId.remove(removedTableId);
                             }
-                        } else if (tablePath == DELETED_TABLE_PATH) {
-                            serverMetadataSnapshot
-                                    .getTablePath(tableId)
-                                    .ifPresent(tableIdByPath::remove);
-                            bucketMetadataMapForTables.remove(tableId);
-                            deletedTableIds.add(tableId);
-                            bucketCountEpochByTableId.remove(tableId);
                         } else {
                             // Ignore an older UpdateMetadata to prevent an older bucket
                             // layout (ALTER bucket.num) from replacing a newer one.
