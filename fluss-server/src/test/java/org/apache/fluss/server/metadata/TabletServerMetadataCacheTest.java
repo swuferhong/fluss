@@ -262,8 +262,9 @@ public class TabletServerMetadataCacheTest {
     @Test
     void testContainsTableBucket() {
         tableMetadataList =
-                Collections.singletonList(
-                        new TableMetadata(DATA1_TABLE_INFO, initialBucketMetadata));
+                Arrays.asList(
+                        new TableMetadata(DATA1_TABLE_INFO, initialBucketMetadata),
+                        new TableMetadata(partitionTableInfo, Collections.emptyList()));
         partitionMetadataList =
                 Collections.singletonList(
                         new PartitionMetadata(
@@ -394,6 +395,129 @@ public class TabletServerMetadataCacheTest {
         assertThat(deleted).containsExactly(DATA1_TABLE_ID);
         assertThat(serverMetadataCache.getTablePath(DATA1_TABLE_ID)).isEmpty();
         assertThat(serverMetadataCache.contains(new TableBucket(DATA1_TABLE_ID, 0))).isFalse();
+    }
+
+    @Test
+    void testTableMetadataDoesNotMixRecreatedTableWithOldBuckets() {
+        TableInfo recreated =
+                TableInfo.of(
+                        DATA1_TABLE_PATH,
+                        DATA1_TABLE_ID + 1,
+                        0,
+                        DATA1_TABLE_DESCRIPTOR,
+                        DEFAULT_REMOTE_DATA_DIR,
+                        100L,
+                        100L);
+        serverMetadataCache =
+                new TabletServerMetadataCache(
+                        new TestingMetadataManager(Collections.singletonList(recreated)));
+        serverMetadataCache.updateTableMetadata(
+                new TableMetadata(DATA1_TABLE_INFO, initialBucketMetadata));
+
+        assertThat(serverMetadataCache.getTableMetadata(DATA1_TABLE_PATH)).isEmpty();
+
+        List<BucketMetadata> newBuckets = Collections.singletonList(initialBucketMetadata.get(0));
+        serverMetadataCache.updateTableMetadata(new TableMetadata(recreated, newBuckets));
+        assertTableMetadataEquals(recreated.getTableId(), recreated, newBuckets);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testTableRecreationClearsOldPartitions(boolean clusterUpdate) {
+        serverMetadataCache.updateClusterMetadata(
+                new ClusterMetadata(
+                        coordinatorServer,
+                        aliveTableServers,
+                        tableMetadataList,
+                        partitionMetadataList));
+        TableInfo recreated =
+                TableInfo.of(
+                        partitionedTablePath,
+                        partitionTableId + 1,
+                        0,
+                        DATA1_PARTITIONED_TABLE_DESCRIPTOR,
+                        DEFAULT_REMOTE_DATA_DIR,
+                        100L,
+                        100L);
+        TableMetadata newMetadata = new TableMetadata(recreated, Collections.emptyList());
+        if (clusterUpdate) {
+            serverMetadataCache.updateClusterMetadata(
+                    new ClusterMetadata(
+                            coordinatorServer,
+                            aliveTableServers,
+                            Collections.singletonList(newMetadata),
+                            Collections.emptyList()));
+        } else {
+            serverMetadataCache.updateTableMetadata(newMetadata);
+        }
+
+        PhysicalTablePath path = PhysicalTablePath.of(partitionedTablePath, partitionName1);
+        assertThat(serverMetadataCache.getPartitionMetadata(path)).isEmpty();
+        assertThat(serverMetadataCache.getPhysicalTablePath(partitionId1)).isEmpty();
+        assertThat(serverMetadataCache.getPhysicalTablePath(partitionId2)).isEmpty();
+        assertThat(serverMetadataCache.contains(new TableBucket(partitionTableId, partitionId1, 0)))
+                .isFalse();
+        assertThat(serverMetadataCache.getTablePath(DATA1_TABLE_ID)).contains(DATA1_TABLE_PATH);
+
+        long newPartitionId = partitionId2 + 1;
+        serverMetadataCache.updatePartitionMetadata(
+                new PartitionMetadata(
+                        recreated.getTableId(),
+                        partitionName1,
+                        newPartitionId,
+                        initialBucketMetadata));
+        // Late metadata and tombstones from the old table must leave the replacement intact.
+        serverMetadataCache.updateTableMetadata(
+                new TableMetadata(partitionTableInfo, Collections.emptyList()));
+        serverMetadataCache.updateClusterMetadata(
+                new ClusterMetadata(
+                        coordinatorServer,
+                        aliveTableServers,
+                        Collections.singletonList(
+                                new TableMetadata(partitionTableInfo, Collections.emptyList())),
+                        Arrays.asList(
+                                partitionMetadataList.get(0),
+                                new PartitionMetadata(
+                                        partitionTableId,
+                                        DELETED_PARTITION_NAME,
+                                        partitionId1,
+                                        Collections.emptyList()))));
+        assertThat(serverMetadataCache.getTablePath(partitionTableId)).isEmpty();
+        assertThat(serverMetadataCache.getTablePath(recreated.getTableId()))
+                .contains(partitionedTablePath);
+        assertThat(serverMetadataCache.getPartitionMetadata(path).get().getPartitionId())
+                .isEqualTo(newPartitionId);
+    }
+
+    @Test
+    void testPartitionDeletionDoesNotRemoveRecreatedPartitionInSameUpdate() {
+        serverMetadataCache.updateClusterMetadata(
+                new ClusterMetadata(
+                        coordinatorServer,
+                        aliveTableServers,
+                        tableMetadataList,
+                        partitionMetadataList));
+        long newPartitionId = partitionId2 + 1;
+        serverMetadataCache.updateClusterMetadata(
+                new ClusterMetadata(
+                        coordinatorServer,
+                        aliveTableServers,
+                        Collections.emptyList(),
+                        Arrays.asList(
+                                new PartitionMetadata(
+                                        partitionTableId,
+                                        partitionName1,
+                                        newPartitionId,
+                                        initialBucketMetadata),
+                                new PartitionMetadata(
+                                        partitionTableId,
+                                        DELETED_PARTITION_NAME,
+                                        partitionId1,
+                                        Collections.emptyList()))));
+        PhysicalTablePath path = PhysicalTablePath.of(partitionedTablePath, partitionName1);
+        assertThat(serverMetadataCache.getPartitionMetadata(path).get().getPartitionId())
+                .isEqualTo(newPartitionId);
+        assertThat(serverMetadataCache.getPhysicalTablePath(partitionId1)).isEmpty();
     }
 
     private void assertTableMetadataEquals(
