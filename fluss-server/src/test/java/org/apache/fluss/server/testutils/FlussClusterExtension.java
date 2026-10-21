@@ -927,6 +927,37 @@ public final class FlussClusterExtension
         return waitUntilPartitionsCreated(tablePath, expectCount);
     }
 
+    /**
+     * Wait until all table buckets have online ISR replicas with table metadata and a local leader
+     * ready to serve requests. For partitioned tables, waits for the default number of precreated
+     * partitions, including empty partitions that have not received any writes.
+     */
+    public void waitUntilTableReady(TablePath tablePath) throws Exception {
+        waitUntilTableReady(
+                tablePath, ConfigOptions.TABLE_AUTO_PARTITION_NUM_PRECREATE.defaultValue());
+    }
+
+    /**
+     * Wait until all table buckets have online ISR replicas with table metadata and a local leader
+     * ready to serve requests. For partitioned tables, first waits for the expected partition
+     * count.
+     */
+    public void waitUntilTableReady(TablePath tablePath, int expectedPartitionCount)
+            throws Exception {
+        Optional<TableRegistration> tableRegistration = zooKeeperClient.getTable(tablePath);
+        assertThat(tableRegistration).isPresent();
+        TableRegistration table = tableRegistration.get();
+        Collection<Long> partitionIds =
+                table.isPartitioned()
+                        ? waitUntilPartitionsCreated(tablePath, expectedPartitionCount).values()
+                        : Collections.singletonList(null);
+        for (Long partitionId : partitionIds) {
+            for (int bucketId = 0; bucketId < table.bucketCount; bucketId++) {
+                waitUntilAllReplicaReady(new TableBucket(table.tableId, partitionId, bucketId));
+            }
+        }
+    }
+
     public Map<String, Long> waitUntilPartitionsCreated(TablePath tablePath, int expectCount) {
         return waitValue(
                 () -> {
