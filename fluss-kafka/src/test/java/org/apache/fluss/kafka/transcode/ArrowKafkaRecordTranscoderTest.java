@@ -344,21 +344,23 @@ class ArrowKafkaRecordTranscoderTest {
     }
 
     @Test
-    void testRejectsUnsupportedFormatEvenForNull() {
+    void testConvertsNullJsonContainer() throws Exception {
         TableInfo table =
                 table(
                         descriptor(
                                         Schema.newBuilder()
-                                                .column("body", DataTypes.STRING())
+                                                .column("body", DataTypes.ARRAY(DataTypes.INT()))
                                                 .build(),
                                         true)
                                 .property(
                                         ConfigOptions.TABLE_KAFKA_CONVERT_VALUE_TYPE,
                                         KafkaValueConversionType.PARSE_JSON)
                                 .build());
-        assertThatThrownBy(() -> transcode(table, (byte[]) null))
-                .isInstanceOf(KafkaRecordEncodingException.class)
-                .hasMessageContaining("PARSE_JSON");
+        read(
+                transcode(table, (byte[]) null),
+                table,
+                1,
+                row -> assertThat(row.isNullAt(0)).isTrue());
     }
 
     @Test

@@ -30,8 +30,12 @@ public interface KafkaFieldDecoder {
     /**
      * Decodes Kafka value bytes into internal Fluss field values.
      *
+     * <p>The result separates the ordered value projection from optional JSON rescue. Decoder
+     * instances are shared by cached write plans and must support concurrent calls without
+     * retaining per-record state.
+     *
      * <p>The input is borrowed and must not be modified. Returned values may borrow its storage;
      * callers must encode them synchronously before the input can be reused.
      */
-    Object[] decode(@Nullable ByteBuffer bytes);
+    KafkaDecodedValue decode(@Nullable ByteBuffer bytes);
 }

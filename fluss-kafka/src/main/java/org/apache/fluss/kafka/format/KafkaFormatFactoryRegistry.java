@@ -19,8 +19,9 @@ package org.apache.fluss.kafka.format;
 
 import org.apache.fluss.annotation.Internal;
 import org.apache.fluss.config.KafkaValueConversionType;
+import org.apache.fluss.kafka.format.json.JsonKafkaFormatFactory;
 import org.apache.fluss.kafka.schema.KafkaTopicSchemaException;
-import org.apache.fluss.metadata.KafkaFieldProjection;
+import org.apache.fluss.metadata.KafkaTableSchema;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -36,17 +37,21 @@ public final class KafkaFormatFactoryRegistry {
         factories = new EnumMap<>(KafkaValueConversionType.class);
         register(new BinaryKafkaFormatFactory());
         register(new StringKafkaFormatFactory());
+        register(new JsonKafkaFormatFactory());
     }
 
-    /** Creates a decoder for the requested format and projection. */
-    public KafkaFieldDecoder createDecoder(
-            KafkaValueConversionType format, KafkaFieldProjection projection) {
+    /** Creates a decoder with fixed rescue-column support from the validated table schema. */
+    public KafkaFieldDecoder createDecoder(KafkaTableSchema schema) {
+        return factory(schema.valueConversionType()).createDecoder(schema);
+    }
+
+    private KafkaFormatFactory factory(KafkaValueConversionType format) {
         KafkaFormatFactory factory = factories.get(format);
         if (factory == null) {
             throw new KafkaTopicSchemaException(
                     "No Kafka format factory is registered for '" + format + "'.");
         }
-        return factory.createDecoder(projection);
+        return factory;
     }
 
     private void register(KafkaFormatFactory factory) {

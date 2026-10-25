@@ -88,10 +88,9 @@ public final class ArrowKafkaRecordTranscoder implements KafkaRecordTranscoder {
                         tableInfo,
                         () ->
                                 new KafkaTopicWritePlan(
-                                        KafkaTableSchema.resolve(tableInfo.toTableDescriptor())));
-        KafkaTableSchema schema = plan.topicSchema();
-        KafkaFieldDecoder valueDecoder =
-                formats.createDecoder(schema.valueConversionType(), schema.valueProjection());
+                                        KafkaTableSchema.resolve(tableInfo.toTableDescriptor()),
+                                        formats));
+        KafkaFieldDecoder valueDecoder = plan.valueDecoder();
         KafkaRowAssembler assembler = plan.rowAssembler();
         ArrowWriter writer = null;
         long epoch = 0;
@@ -117,6 +116,8 @@ public final class ArrowKafkaRecordTranscoder implements KafkaRecordTranscoder {
             EncodedRecords result = new EncodedRecords(builder.build(), builder);
             ownershipTransferred = true;
             return result;
+        } catch (KafkaRecordEncodingException e) {
+            throw e;
         } catch (Exception e) {
             throw new FlussRuntimeException(
                     "Kafka transcode Arrow memory limit exceeded (allocator limit "
