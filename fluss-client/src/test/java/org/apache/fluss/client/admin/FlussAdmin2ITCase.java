@@ -19,6 +19,8 @@
 
 package org.apache.fluss.client.admin;
 
+import org.apache.fluss.cluster.ServerNode;
+import org.apache.fluss.cluster.rebalance.ServerTag;
 import org.apache.fluss.config.AutoPartitionTimeUnit;
 import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.exception.TableNotPartitionedException;
@@ -35,6 +37,8 @@ import org.apache.fluss.types.DataTypes;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -45,6 +49,7 @@ import static org.apache.fluss.testutils.common.CommonTestUtils.waitUntil;
 import static org.apache.fluss.utils.PartitionUtils.HISTORICAL_PARTITION_VALUE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * Additional integration tests for {@link FlussAdmin}.
@@ -223,6 +228,33 @@ class FlussAdmin2ITCase extends ClientToServerITCaseBase {
                                 .allMatch(FlussAdmin2ITCase::isServerGreen),
                 Duration.ofMinutes(1),
                 "All tablet servers should become green again after server restart");
+    }
+
+    @Test
+    void testGetServerNodesAfterCoordinatorServerRestart() throws Exception {
+        admin.addServerTag(Collections.singletonList(0), ServerTag.TEMPORARY_OFFLINE).get();
+        try {
+            ServerNode staleCoordinator = FLUSS_CLUSTER_EXTENSION.getCoordinatorServerNode();
+            assertThat(admin.getServerNodes().get()).contains(staleCoordinator);
+
+            // The same admin keeps the stale coordinator address, so getServerNodes must refresh
+            // the metadata and retry to reach the restarted coordinator.
+            restartCoordinatorServer(FLUSS_CLUSTER_EXTENSION.getZooKeeperClient());
+            ServerNode newCoordinator = FLUSS_CLUSTER_EXTENSION.getCoordinatorServerNode();
+            assertThat(newCoordinator).isNotEqualTo(staleCoordinator);
+
+            List<ServerNode> serverNodes = admin.getServerNodes().get();
+            List<ServerNode> expectedNodes = new ArrayList<>();
+            expectedNodes.add(newCoordinator);
+            expectedNodes.addAll(FLUSS_CLUSTER_EXTENSION.getTabletServerNodes());
+            assertThat(serverNodes).containsExactlyInAnyOrderElementsOf(expectedNodes);
+            assertThat(serverNodes)
+                    .filteredOn(node -> node.serverTag() != null)
+                    .extracting(ServerNode::id, ServerNode::serverTag)
+                    .containsExactly(tuple(0, ServerTag.TEMPORARY_OFFLINE));
+        } finally {
+            admin.removeServerTag(Collections.singletonList(0), ServerTag.TEMPORARY_OFFLINE).get();
+        }
     }
 
     private static ListPartitionInfosRequest requestFor(

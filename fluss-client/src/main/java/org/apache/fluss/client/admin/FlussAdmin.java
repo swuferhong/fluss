@@ -165,6 +165,13 @@ public class FlussAdmin implements Admin {
 
     private final AdminGateway gateway;
     private final AdminReadOnlyGateway readOnlyGateway;
+
+    /**
+     * Retries on the coordinator after a metadata refresh, so that a stale coordinator address is
+     * recovered. Only use it for idempotent read requests, see the TODO in the constructor.
+     */
+    private final AdminGateway retryableCoordinatorGateway;
+
     private final MetadataUpdater metadataUpdater;
 
     /**
@@ -194,6 +201,12 @@ public class FlussAdmin implements Admin {
                         metadataUpdater::refreshClusterUntilAvailable,
                         refreshExecutor,
                         AdminGateway.class);
+        this.retryableCoordinatorGateway =
+                RetryableGatewayClientProxy.createRetryableGatewayProxy(
+                        gateway,
+                        metadataUpdater::refreshClusterUntilAvailable,
+                        refreshExecutor,
+                        AdminGateway.class);
         this.metadataUpdater = metadataUpdater;
     }
 
@@ -203,7 +216,8 @@ public class FlussAdmin implements Admin {
         // support the describe cluster request, so fall back to the metadata request, which returns
         // the same server nodes without tags.
         return fallbackIfUnsupported(
-                () -> sendDescribeClusterRequest(gateway), this::getServerNodesFromMetadata);
+                () -> sendDescribeClusterRequest(retryableCoordinatorGateway),
+                this::getServerNodesFromMetadata);
     }
 
     private CompletableFuture<List<ServerNode>> getServerNodesFromMetadata() {
