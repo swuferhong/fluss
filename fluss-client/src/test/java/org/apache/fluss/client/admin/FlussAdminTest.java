@@ -24,16 +24,17 @@ import org.apache.fluss.cluster.ServerNode;
 import org.apache.fluss.cluster.ServerType;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.exception.AuthorizationException;
-import org.apache.fluss.exception.NetworkException;
 import org.apache.fluss.exception.UnsupportedVersionException;
 import org.apache.fluss.rpc.RpcClient;
 import org.apache.fluss.rpc.messages.ApiMessage;
 import org.apache.fluss.rpc.messages.DescribeClusterResponse;
 import org.apache.fluss.rpc.messages.MetadataResponse;
 import org.apache.fluss.rpc.protocol.ApiKeys;
+import org.apache.fluss.rpc.protocol.Errors;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
@@ -55,8 +56,15 @@ class FlussAdminTest {
             new ServerNode(0, "new-coordinator", 9123, ServerType.COORDINATOR);
 
     @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void testDescribeClusterRefreshesAndRetriesOnce(boolean retrySucceeds) throws Exception {
+    @CsvSource({
+        "NETWORK_EXCEPTION, true",
+        "NETWORK_EXCEPTION, false",
+        "NOT_COORDINATOR_LEADER_EXCEPTION, true",
+        "NOT_COORDINATOR_LEADER_EXCEPTION, false"
+    })
+    void testDescribeClusterRefreshesAndRetriesOnce(Errors error, boolean retrySucceeds)
+            throws Exception {
+        RuntimeException failure = error.exception("coordinator unavailable");
         AtomicInteger refreshes = new AtomicInteger();
         List<ServerNode> contactedNodes = new ArrayList<>();
         TestingRpcClient client =
@@ -65,7 +73,7 @@ class FlussAdminTest {
                             assertThat(api).isEqualTo(ApiKeys.DESCRIBE_CLUSTER);
                             contactedNodes.add(node);
                             if (node.equals(OLD_COORDINATOR) || !retrySucceeds) {
-                                return failed(new NetworkException("coordinator unavailable"));
+                                return failed(failure);
                             }
                             DescribeClusterResponse response = new DescribeClusterResponse();
                             response.setCoordinatorServer()
@@ -93,7 +101,7 @@ class FlussAdminTest {
             } else {
                 assertThatThrownBy(() -> admin.describeCluster().get(10, TimeUnit.SECONDS))
                         .rootCause()
-                        .isInstanceOf(NetworkException.class);
+                        .isSameAs(failure);
             }
             assertThat(contactedNodes).containsExactly(OLD_COORDINATOR, NEW_COORDINATOR);
             assertThat(refreshes).hasValue(1);
