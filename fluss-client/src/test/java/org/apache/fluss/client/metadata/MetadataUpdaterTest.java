@@ -18,6 +18,7 @@
 package org.apache.fluss.client.metadata;
 
 import org.apache.fluss.client.utils.MetadataUtils;
+import org.apache.fluss.client.utils.TestingRpcClient;
 import org.apache.fluss.cluster.Cluster;
 import org.apache.fluss.cluster.ServerNode;
 import org.apache.fluss.cluster.ServerType;
@@ -33,6 +34,7 @@ import org.apache.fluss.rpc.messages.MetadataResponse;
 import org.apache.fluss.rpc.messages.PbPartitionMetadata;
 import org.apache.fluss.rpc.messages.PbTableMetadata;
 import org.apache.fluss.rpc.metrics.TestingClientMetricGroup;
+import org.apache.fluss.rpc.protocol.ApiKeys;
 import org.apache.fluss.server.coordinator.TestCoordinatorGateway;
 
 import org.junit.jupiter.api.Test;
@@ -47,12 +49,6 @@ import java.util.concurrent.CompletableFuture;
 import static org.apache.fluss.server.utils.ServerRpcMessageUtils.buildMetadataResponse;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /** UT Test for update metadata of {@link MetadataUpdater}. */
 public class MetadataUpdaterTest {
@@ -94,7 +90,11 @@ public class MetadataUpdaterTest {
         // Bootstrap endpoints share a UID despite having different addresses.
         assertThat(failedNode.uid()).isEqualTo(otherNode.uid());
 
-        RpcClient rpcClient = mock(RpcClient.class);
+        TestingRpcClient rpcClient =
+                new TestingRpcClient(
+                        (node, apiKey) -> {
+                            throw new AssertionError("Requests should go through the test gateway");
+                        });
         AdminReadOnlyGateway gateway = new TestingAdminReadOnlyGateway(1);
 
         // The first attempt fails and the next attempt succeeds.
@@ -104,10 +104,8 @@ public class MetadataUpdaterTest {
 
         assertThat(cluster).isNotNull();
 
-        // Only the failed endpoint should be disconnected.
-        verify(rpcClient).disconnect(failedNode);
-        verify(rpcClient, never()).disconnect(otherNode);
-        verify(rpcClient, never()).disconnect(failedNode.uid());
+        assertThat(rpcClient.getDisconnectedNodes()).containsExactly(failedNode);
+        assertThat(rpcClient.getDisconnectedServerUids()).isEmpty();
     }
 
     @Test
@@ -122,31 +120,29 @@ public class MetadataUpdaterTest {
 
         assertThat(failedNode.uid()).isEqualTo(healthyNode.uid());
 
-        RpcClient rpcClient = mock(RpcClient.class);
-
-        // The first bootstrap endpoint fails.
-        when(rpcClient.sendRequest(eq(failedNode), any(), any()))
-                .thenThrow(new StaleMetadataException("Bootstrap endpoint unavailable"));
-
-        // The second bootstrap endpoint returns valid cluster metadata.
-        when(rpcClient.sendRequest(eq(healthyNode), any(), any()))
-                .thenAnswer(
-                        invocation ->
-                                CompletableFuture.completedFuture(
-                                        buildMetadataResponse(
-                                                CS_NODE,
-                                                Collections.singleton(TS_NODE),
-                                                Collections.emptyList(),
-                                                Collections.emptyList())));
+        TestingRpcClient rpcClient =
+                new TestingRpcClient(
+                        (node, apiKey) -> {
+                            assertThat(apiKey).isEqualTo(ApiKeys.GET_METADATA);
+                            if (node.equals(failedNode)) {
+                                throw new StaleMetadataException("Bootstrap endpoint unavailable");
+                            }
+                            assertThat(node).isEqualTo(healthyNode);
+                            return CompletableFuture.completedFuture(
+                                    buildMetadataResponse(
+                                            CS_NODE,
+                                            Collections.singleton(TS_NODE),
+                                            Collections.emptyList(),
+                                            Collections.emptyList()));
+                        });
 
         MetadataUpdater updater = new MetadataUpdater(configuration, rpcClient);
 
         assertThat(updater.getCluster().getCoordinatorServer()).isEqualTo(CS_NODE);
+        assertThat(updater.getCluster().getAliveTabletServerList()).containsExactly(TS_NODE);
 
-        verify(rpcClient).sendRequest(eq(healthyNode), any(), any());
-        verify(rpcClient).disconnect(failedNode);
-        verify(rpcClient, never()).disconnect(healthyNode);
-        verify(rpcClient, never()).disconnect(failedNode.uid());
+        assertThat(rpcClient.getDisconnectedNodes()).containsExactly(failedNode);
+        assertThat(rpcClient.getDisconnectedServerUids()).isEmpty();
     }
 
     @ParameterizedTest
